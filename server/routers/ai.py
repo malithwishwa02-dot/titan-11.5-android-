@@ -6,7 +6,7 @@ Titan V11.3 — AI Router
 import asyncio
 import logging
 import os
-from typing import Dict
+from typing import Dict, List
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -42,6 +42,18 @@ class ScreenTypeBody(BaseModel):
 class FaceSwapBody(BaseModel):
     source_b64: str  # base64 source face image
     target_b64: str  # base64 target image/frame
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class CodingRequest(BaseModel):
+    messages: List[ChatMessage]
+    model: str | None = None
+    temperature: float = 0.7
+    max_tokens: int = 4096
 
 
 def cleanup_agent(device_id: str):
@@ -296,3 +308,37 @@ async def ai_faceswap(body: FaceSwapBody):
     except Exception as e:
         logger.exception("Face swap failed")
         return {"error": str(e)}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# CODING API PROXY (Vast.ai)
+# ═══════════════════════════════════════════════════════════════════════
+
+@router.post("/coding")
+async def coding_completion(body: CodingRequest):
+    """Proxy coding requests to Vast.ai coding API.
+    
+    This endpoint provides OpenAI-compatible completions for Windsurf/Cascade
+    integration using a remote GPU-accelerated coding model.
+    """
+    api_url = os.environ.get("VASTAI_CODING_API_URL")
+    api_model = body.model or os.environ.get("VASTAI_CODING_MODEL")
+    if not api_url or not api_model:
+        raise HTTPException(status_code=500, detail="Vast.ai coding API not configured")
+
+    payload = {
+        "model": api_model,
+        "messages": [m.dict() for m in body.messages],
+        "temperature": body.temperature,
+        "max_tokens": body.max_tokens,
+    }
+
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(f"{api_url}/chat/completions", json=payload)
+            resp.raise_for_status()
+            return resp.json()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Coding API request failed: {exc}")
