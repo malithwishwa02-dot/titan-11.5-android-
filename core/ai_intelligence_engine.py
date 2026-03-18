@@ -20,6 +20,8 @@ import urllib.error
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from circuit_breaker import get_breaker
+
 logger = logging.getLogger("titan.ai-intelligence")
 
 # Ollama endpoints
@@ -92,8 +94,10 @@ Be direct and technical. Avoid unnecessary disclaimers."""
     
     def _call_ollama(self, prompt: str, system: Optional[str] = None,
                      temperature: float = 0.7, max_tokens: int = 2048) -> Optional[str]:
-        """Call Ollama API for completion."""
-        try:
+        """Call Ollama API for completion with circuit breaker and fallback."""
+        breaker = get_breaker("ollama_gpu", failure_threshold=3, recovery_timeout=30)
+        
+        def _make_request(url: str, timeout: int) -> str:
             payload = {
                 "model": self.model,
                 "prompt": prompt,
@@ -108,21 +112,33 @@ Be direct and technical. Avoid unnecessary disclaimers."""
             
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(
-                f"{self.ollama_url}/api/generate",
+                f"{url}/api/generate",
                 data=data,
                 headers={"Content-Type": "application/json"},
                 method="POST"
             )
             
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 result = json.loads(resp.read().decode())
                 return result.get("response", "")
         
+        # Try GPU Ollama with circuit breaker
+        try:
+            response = breaker.call(_make_request, self.ollama_url, timeout=30)
+            return response
+        except Exception as e:
+            logger.warning(f"GPU Ollama failed ({type(e).__name__}), falling back to CPU")
+        
+        # Fallback to CPU Ollama
+        try:
+            response = _make_request(CPU_OLLAMA_URL, timeout=60)
+            logger.info("CPU Ollama fallback successful")
+            return response
         except urllib.error.URLError as e:
-            logger.error(f"Ollama connection error: {e}")
+            logger.error(f"CPU Ollama connection error: {e}")
             return None
         except Exception as e:
-            logger.error(f"Ollama API error: {e}")
+            logger.error(f"CPU Ollama API error: {e}")
             return None
     
     def _extract_categories(self, text: str) -> List[str]:

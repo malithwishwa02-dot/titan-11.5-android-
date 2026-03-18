@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,9 +27,26 @@ for p in V11_CORE:
         sys.path.insert(0, p)
 
 from device_manager import DeviceManager
+from json_logger import configure_all_loggers
+from device_recovery import DeviceRecoveryManager
+from metrics import get_metrics
+from alerting import get_alert_manager, get_health_monitor
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+# Configure JSON logging for all components
+configure_all_loggers()
 logger = logging.getLogger("titan.api")
+
+# Global recovery manager
+recovery_manager: Optional[DeviceRecoveryManager] = None
+
+# Health monitor
+health_monitor = None
+
+# Metrics collector
+metrics = get_metrics()
+
+# Alert manager
+alert_manager = get_alert_manager()
 
 # ═══════════════════════════════════════════════════════════════════════
 # APP INIT
@@ -229,6 +247,33 @@ async def capabilities():
     }
 
 
+@app.get("/metrics")
+async def metrics_endpoint():
+    """Prometheus metrics endpoint."""
+    # Update device state counts
+    devices = dm.list_devices()
+    states = {}
+    for dev in devices:
+        states[dev.state] = states.get(dev.state, 0) + 1
+    metrics.update_device_states(states)
+    
+    # Export as Prometheus format
+    return Response(content=metrics.to_prometheus_format(), media_type="text/plain")
+
+
+@app.get("/api/metrics")
+async def api_metrics_endpoint():
+    """JSON metrics endpoint."""
+    # Update device state counts
+    devices = dm.list_devices()
+    states = {}
+    for dev in devices:
+        states[dev.state] = states.get(dev.state, 0) + 1
+    metrics.update_device_states(states)
+    
+    return metrics.to_dict()
+
+
 @app.get("/", response_class=HTMLResponse)
 async def console_root():
     index = CONSOLE_DIR / "index.html"
@@ -270,11 +315,28 @@ async def favicon():
 
 @app.on_event("startup")
 async def startup():
+    global recovery_manager, health_monitor
     logger.info("Titan V11.3 API Server starting")
     logger.info(f"Devices loaded: {len(dm.list_devices())}")
     logger.info(f"Console dir: {CONSOLE_DIR}")
     logger.info(f"Core dir: {CORE_DIR}")
     await cpu_governor.start()
+    
+    # Start device recovery manager
+    try:
+        recovery_manager = DeviceRecoveryManager(dm, check_interval=60, boot_timeout=300)
+        await recovery_manager.start()
+        logger.info("Device recovery manager started")
+    except Exception as e:
+        logger.warning(f"Device recovery manager init failed: {e}")
+    
+    # Start health monitor
+    try:
+        health_monitor = get_health_monitor(dm)
+        await health_monitor.start()
+        logger.info("Health monitor started")
+    except Exception as e:
+        logger.warning(f"Health monitor init failed: {e}")
     
     # Start ADB connection watchdog for all ready/patched devices
     try:
@@ -290,7 +352,24 @@ async def startup():
 @app.on_event("shutdown")
 async def shutdown():
     """Graceful shutdown - drain in-flight requests and cleanup."""
+    global recovery_manager, health_monitor
     logger.info("Titan V11.3 API Server shutting down gracefully")
+    
+    # Stop health monitor
+    if health_monitor:
+        try:
+            await health_monitor.stop()
+            logger.info("Health monitor stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping health monitor: {e}")
+    
+    # Stop recovery manager
+    if recovery_manager:
+        try:
+            await recovery_manager.stop()
+            logger.info("Device recovery manager stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping recovery manager: {e}")
     
     # Stop CPU governor
     try:

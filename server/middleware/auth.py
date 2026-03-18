@@ -22,10 +22,18 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if path in PUBLIC_PATHS or path.startswith("/static"):
             return await call_next(request)
 
-        # Skip auth entirely if no secret is configured (dev mode / first deploy)
+        # Require secret to be configured and non-default
         secret = os.environ.get("TITAN_API_SECRET", "").strip()
-        if not secret or secret == "change-me-to-a-secure-random-string":
-            return await call_next(request)
+        if not secret:
+            raise HTTPException(
+                status_code=500,
+                detail="TITAN_API_SECRET environment variable not set. Authentication required."
+            )
+        if secret == "change-me-to-a-secure-random-string":
+            raise HTTPException(
+                status_code=500,
+                detail="TITAN_API_SECRET must be changed from default value. Set a strong random secret."
+            )
 
         # Require auth for /api/* and /ws/* endpoints
         if path.startswith("/api/") or path.startswith("/ws/"):

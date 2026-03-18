@@ -9,6 +9,8 @@ import subprocess
 import time
 from typing import Tuple
 
+from adb_error_classifier import ADBErrorType, classify_adb_error, should_retry, get_recovery_strategy
+
 logger = logging.getLogger("titan.adb")
 
 
@@ -127,35 +129,41 @@ def reconnect_device(target: str, max_retries: int = 3, retry_delay: float = 2.0
 
 
 def adb_with_retry(target: str, cmd: str, timeout: int = 15, 
-                   max_retries: int = 2) -> Tuple[bool, str]:
+                   max_retries: int = 2) -> Tuple[bool, str, ADBErrorType]:
     """
     Run ADB command with automatic reconnection on failure.
     
     If the command fails due to connection issues, attempts to reconnect
     and retry the command.
+    
+    Returns:
+        (success, output, error_type)
     """
     # First attempt
     ok, out = adb(target, cmd, timeout)
     if ok:
-        return True, out
+        return True, out, ADBErrorType.UNKNOWN
     
-    # Check if it's a connection issue
-    connection_errors = ["device offline", "no devices", "connection refused", 
-                        "device not found", "error: closed"]
-    is_connection_error = any(err in out.lower() for err in connection_errors)
+    # Classify error
+    error_type = classify_adb_error(out, 1)
     
-    if not is_connection_error:
-        return False, out  # Not a connection issue, don't retry
+    if not should_retry(error_type):
+        logger.warning(f"ADB error (non-retryable): {error_type.value} -> {out}")
+        return False, out, error_type
     
-    logger.warning(f"ADB connection issue detected: {out}")
+    logger.warning(f"ADB error (retryable): {error_type.value} -> {out}")
     
-    # Attempt reconnection
+    # Attempt reconnection based on error type
+    recovery = get_recovery_strategy(error_type)
+    logger.info(f"Applying recovery strategy: {recovery}")
+    
     if reconnect_device(target, max_retries=max_retries):
         # Retry command after reconnection
         logger.info(f"Retrying command after reconnection: {cmd[:50]}...")
-        return adb(target, cmd, timeout)
+        ok, out = adb(target, cmd, timeout)
+        return ok, out, error_type
     
-    return False, "reconnection_failed"
+    return False, "reconnection_failed", error_type
 
 
 def adb_shell_with_retry(target: str, cmd: str, timeout: int = 15) -> str:

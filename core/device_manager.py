@@ -28,6 +28,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from device_state_db import DeviceStateDB
+
 logger = logging.getLogger("titan.device-manager")
 
 TITAN_DATA = Path(os.environ.get("TITAN_DATA", "/opt/titan/data"))
@@ -127,6 +129,7 @@ class DeviceManager:
         CVD_HOME_BASE.mkdir(parents=True, exist_ok=True)
         self._devices: Dict[str, DeviceInstance] = {}
         self._numa_topology: Optional[Dict] = None
+        self._db = DeviceStateDB(str(TITAN_DATA / "devices.db"))
         self._load_state()
 
     # ─── NUMA / CPU AFFINITY ──────────────────────────────────────────
@@ -253,25 +256,35 @@ class DeviceManager:
 
     # ─── STATE PERSISTENCE ────────────────────────────────────────────
 
-    def _state_file(self) -> Path:
-        return DEVICES_DIR / "devices.json"
-
     def _load_state(self):
-        sf = self._state_file()
-        if sf.exists():
-            try:
-                data = json.loads(sf.read_text())
-                for d in data:
-                    dev = DeviceInstance(**d)
-                    self._devices[dev.id] = dev
-                logger.info(f"Loaded {len(self._devices)} devices from state")
-            except Exception as e:
-                logger.warning(f"Failed to load state: {e}")
+        """Load device state from SQLite database."""
+        try:
+            devices_data = self._db.load_all_devices()
+            for dev_dict in devices_data:
+                dev = DeviceInstance(
+                    id=dev_dict["id"],
+                    adb_target=dev_dict["adb_target"],
+                    state=dev_dict["state"],
+                    device_type=dev_dict["device_type"],
+                    instance_num=dev_dict["instance_num"],
+                    adb_port=dev_dict["adb_port"],
+                    vnc_port=dev_dict["vnc_port"],
+                    config=dev_dict["config"],
+                    patch_result=dev_dict["patch_result"],
+                    stealth_score=dev_dict["stealth_score"],
+                    created_at=dev_dict["created_at"],
+                    error=dev_dict["error"],
+                )
+                self._devices[dev.id] = dev
+            logger.info(f"Loaded {len(self._devices)} devices from SQLite database")
+        except Exception as e:
+            logger.warning(f"Failed to load state from database: {e}")
 
     def _save_state(self):
-        sf = self._state_file()
-        data = [d.to_dict() for d in self._devices.values()]
-        sf.write_text(json.dumps(data, indent=2))
+        """Save device state to SQLite database."""
+        for dev in self._devices.values():
+            dev_dict = dev.to_dict()
+            self._db.save_device(dev_dict)
 
     # ─── DEVICE CRUD ──────────────────────────────────────────────────
 

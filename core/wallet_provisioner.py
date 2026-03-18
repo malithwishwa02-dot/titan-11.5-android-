@@ -449,6 +449,27 @@ class WalletProvisioner:
             # Session keys stub for LUK/ATC references
             c.execute("""
                 CREATE TABLE IF NOT EXISTS session_keys (
+                    token_id INTEGER PRIMARY KEY,
+                    luk TEXT,
+                    atc_counter INTEGER DEFAULT 0,
+                    FOREIGN KEY (token_id) REFERENCES tokens(id)
+                )
+            """)
+
+            # EMV tokenization metadata (P3-2: Complete tokenization)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS emv_metadata (
+                    token_id INTEGER PRIMARY KEY,
+                    cvn TEXT DEFAULT '17',
+                    cvr TEXT DEFAULT '0000000000000000',
+                    iad TEXT DEFAULT '',
+                    cryptogram_version TEXT DEFAULT 'EMV_2000',
+                    cryptogram_type TEXT DEFAULT 'ARQC',
+                    FOREIGN KEY (token_id) REFERENCES tokens(id)
+                )
+            """)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS session_keys (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     token_id INTEGER NOT NULL,
                     key_type TEXT DEFAULT 'LUK',

@@ -190,6 +190,10 @@ class ProfileInjector:
 
         # ── Phase 5.5: Purchase history (commerce cookies + history) ──
         self._inject_purchase_history(profile)
+        
+        # ── Phase 5.5.1: Payment transaction history (P3-1) ──
+        if card_data:
+            self._inject_payment_history(profile, card_data)
 
         # ── Phase 5.6: WiFi saved networks ──
         self._inject_wifi_networks(profile.get("wifi_networks", []))
@@ -1462,6 +1466,37 @@ class ProfileInjector:
         if install_cmds:
             _adb_shell(self.target, "; ".join(install_cmds))
             logger.info(f"  Install times: backdated {len(install_cmds)} packages (filesystem)")
+
+    # ─── PAYMENT HISTORY INJECTION (P3-1) ────────────────────────────────
+
+    def _inject_payment_history(self, profile: Dict[str, Any], card_data: Dict[str, Any]):
+        """Inject payment transaction history into banking app databases."""
+        try:
+            from payment_history_forge import PaymentHistoryForge
+            
+            logger.info("  Injecting payment transaction history")
+            
+            # Generate payment history
+            forge = PaymentHistoryForge()
+            history = forge.forge(
+                age_days=profile.get("age_days", 90),
+                card_network=card_data.get("network", "visa"),
+                card_last4=card_data.get("number", "")[-4:],
+                persona_email=profile.get("persona_email", ""),
+                persona_name=profile.get("persona_name", ""),
+                country=profile.get("country", "US"),
+            )
+            
+            # Inject transaction history into banking app databases
+            # This would write to app-specific databases
+            # For now, store in profile for later use
+            profile["payment_history"] = history
+            
+            logger.info(f"  Payment history: {len(history['transactions'])} transactions generated")
+            
+        except Exception as e:
+            logger.warning(f"  Payment history injection failed: {e}")
+            self.result.errors.append(f"payment_history: {e}")
         if pm_cmds:
             # pm set-install-time may not exist on all Android versions — non-fatal
             _adb_shell(self.target, "; ".join(pm_cmds))

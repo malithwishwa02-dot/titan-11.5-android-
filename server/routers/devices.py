@@ -5,11 +5,15 @@ Titan V11.3 — Devices Router (Cuttlefish)
 
 import asyncio
 import io
+import logging
+import subprocess
 from typing import List
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+
+logger = logging.getLogger("titan.devices")
 
 from device_manager import DeviceManager, CreateDeviceRequest
 from anomaly_patcher import AnomalyPatcher
@@ -158,27 +162,50 @@ async def device_input(device_id: str, body: InputBody):
 
     if body.type == "tap":
         px, py = int(body.x * width), int(body.y * height)
-        _adb(t, f'shell "input tap {px} {py}"')
-        return {"ok": True, "action": "tap", "px": px, "py": py}
+        try:
+            subprocess.run(
+                ["adb", "-s", t, "shell", "input", "tap", str(px), str(py)],
+                capture_output=True, timeout=10
+            )
+            return {"ok": True, "action": "tap", "px": px, "py": py}
+        except Exception as e:
+            logger.error(f"Tap failed: {e}")
+            return {"ok": False, "error": str(e)}
 
     elif body.type == "swipe":
         px1, py1 = int(body.x1 * width), int(body.y1 * height)
         px2, py2 = int(body.x2 * width), int(body.y2 * height)
         dur = max(100, min(body.duration, 2000))
-        _adb(t, f'shell "input swipe {px1} {py1} {px2} {py2} {dur}"')
-        return {"ok": True, "action": "swipe"}
+        try:
+            subprocess.run(
+                ["adb", "-s", t, "shell", "input", "swipe", str(px1), str(py1), str(px2), str(py2), str(dur)],
+                capture_output=True, timeout=10
+            )
+            return {"ok": True, "action": "swipe"}
+        except Exception as e:
+            logger.error(f"Swipe failed: {e}")
+            return {"ok": False, "error": str(e)}
 
     elif body.type == "key":
-        _adb(t, f'shell "input keyevent {body.keycode}"')
-        return {"ok": True, "action": "key", "keycode": body.keycode}
+        try:
+            subprocess.run(
+                ["adb", "-s", t, "shell", "input", "keyevent", body.keycode],
+                capture_output=True, timeout=10
+            )
+            return {"ok": True, "action": "key", "keycode": body.keycode}
+        except Exception as e:
+            logger.error(f"Key event failed: {e}")
+            return {"ok": False, "error": str(e)}
 
     elif body.type == "text":
-        # Escape text for ADB shell
-        escaped = body.text.replace(" ", "%s").replace("'", "\\'")
-        escaped = escaped.replace('"', '\\"').replace("&", "\\&")
-        escaped = escaped.replace("(", "\\(").replace(")", "\\)")
-        escaped = escaped.replace(";", "\\;").replace("|", "\\|")
-        _adb(t, f"shell \"input text '{escaped}'\"")
-        return {"ok": True, "action": "text", "length": len(body.text)}
+        try:
+            subprocess.run(
+                ["adb", "-s", t, "shell", "input", "text", body.text],
+                capture_output=True, timeout=10
+            )
+            return {"ok": True, "action": "text", "length": len(body.text)}
+        except Exception as e:
+            logger.error(f"Text input failed: {e}")
+            return {"ok": False, "error": str(e)}
 
     return {"ok": False, "error": "unknown input type"}
