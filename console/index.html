@@ -187,6 +187,16 @@
             <div><label class="lbl">Proxy (socks5://user:pass@host:port)</label><div class="flex gap-2"><input type="text" x-model="forge.proxy" placeholder="socks5://user:pass@host:port" class="inp flex-1"><button @click="testProxy()" class="btn-secondary text-white px-3 py-1 rounded-lg text-xs">Test</button></div></div>
             <div><label class="lbl">Proxy Status</label><div class="inp bg-[#0f172a] text-xs text-gray-500 h-[38px] flex items-center" x-text="forge.proxy_status||'Not tested'"></div></div>
           </div>
+          <div class="border-t border-gray-800 pt-3 mt-1"><span class="text-[10px] text-gray-500 uppercase tracking-wider">Google Account (Pre-Injection Sign-In)</span></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="lbl">Google Email</label><input type="email" x-model="forge.google_email" placeholder="persona@gmail.com" class="inp"></div>
+            <div><label class="lbl">Google Password</label><input type="password" x-model="forge.google_password" placeholder="Account password" class="inp"></div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="lbl">Real Phone (OTP Verification)</label><div class="flex gap-2"><input type="tel" x-model="forge.real_phone" placeholder="+14304314828" class="inp flex-1"><span class="text-[10px] self-center px-1.5 py-0.5 rounded" :class="forge.otp_status==='received'?'bg-green-900/50 text-green-400':forge.otp_status==='waiting'?'bg-yellow-900/50 text-yellow-400':'bg-gray-700 text-gray-500'" x-text="forge.otp_status||'idle'"></span></div></div>
+            <div><label class="lbl">OTP Code (auto / manual)</label><div class="flex gap-2"><input type="text" x-model="forge.otp_code" placeholder="Auto-received or enter manually" class="inp flex-1" maxlength="6"><button @click="requestOtp()" :disabled="!forge.real_phone" class="btn-secondary text-white px-3 py-1 rounded-lg text-[10px] disabled:opacity-50">Request</button></div></div>
+          </div>
+          <div class="text-[10px] text-gray-600 mt-1">Real phone receives SMS OTP during Google account sign-in. Email+password are used to sign into Google on-device before profile injection.</div>
         </div>
       </div>
 
@@ -245,27 +255,33 @@
           <h4 class="text-cyan-400 text-xs font-bold uppercase">Provision Pipeline</h4>
           <span class="text-[10px] font-mono" :class="provisionJob?.status==='completed'?'text-green-400':provisionJob?.status==='failed'?'text-red-400':'text-yellow-400'" x-text="provisionJob?.status?.toUpperCase()||''" ></span>
         </div>
-        <div class="flex items-center gap-2 text-xs">
-          <template x-for="(s,i) in [{n:1,label:'Forge',key:'forge'},{n:2,label:'Inject',key:'inject'},{n:3,label:'Full Patch',key:'patch'},{n:4,label:'Verify',key:'done'}]" :key="i">
+        <div class="flex items-center gap-1 text-xs flex-wrap">
+          <template x-for="(s,i) in [{n:1,label:'Inject',key:'inject'},{n:2,label:'Proxy',key:'proxy'},{n:3,label:'Full Patch',key:'patch'},{n:4,label:'Google Sign-In',key:'google_signin'},{n:5,label:'GSM Verify',key:'gsm_verify'},{n:6,label:'Trust Score',key:'trust_score'}]" :key="i">
             <div class="flex items-center gap-1">
-              <div class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold"
+              <div class="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
                 :class="provisionJob?.step_n > s.n ? 'bg-green-700 text-green-300' : provisionJob?.step_n === s.n ? 'bg-yellow-700 text-yellow-300 animate-pulse' : 'bg-gray-700 text-gray-500'">
                 <span x-text="provisionJob?.step_n > s.n ? '&#10003;' : s.n"></span>
               </div>
-              <span :class="provisionJob?.step_n >= s.n ? 'text-white' : 'text-gray-600'" x-text="s.label"></span>
-              <span x-show="i < 3" class="text-gray-700 mx-1">&#8594;</span>
+              <span class="whitespace-nowrap" :class="provisionJob?.step_n >= s.n ? 'text-white' : 'text-gray-600'" x-text="s.label"></span>
+              <span x-show="i < 5" class="text-gray-700 mx-0.5">&#8594;</span>
             </div>
           </template>
         </div>
         <div class="text-[11px] text-gray-500 mt-2" x-show="provisionJob?.step==='patch'">
           Full patch running (26 phases, 103+ vectors)...
         </div>
+        <div class="text-[11px] text-gray-500 mt-2" x-show="provisionJob?.step==='google_signin'">
+          Signing into Google account on-device...
+        </div>
+        <div class="text-[11px] text-gray-500 mt-2" x-show="provisionJob?.step==='proxy'">
+          Configuring SOCKS5 proxy on device...
+        </div>
       </div>
 
       <!-- Provision scorecard -->
       <div x-show="provisionResult" class="grp border-green-700 bg-green-900/20">
         <div class="text-green-400 font-bold text-sm mb-3">&#9989; Provision Complete</div>
-        <div class="grid grid-cols-3 gap-4">
+        <div class="grid grid-cols-5 gap-3">
           <div class="text-center">
             <div class="text-2xl font-bold" :class="(provisionResult?.patch_score||0)>=90?'text-green-400':(provisionResult?.patch_score||0)>=70?'text-yellow-400':'text-red-400'" x-text="(provisionResult?.patch_score||0)+'%'"></div>
             <div class="text-[10px] text-gray-500 mt-0.5">Stealth Score</div>
@@ -279,6 +295,16 @@
             <div class="text-2xl font-bold" :class="provisionResult?.gsm?.ok?'text-green-400':'text-red-400'" x-text="provisionResult?.gsm?.ok ? '&#10003; OK' : '&#10007; FAIL'"></div>
             <div class="text-[10px] text-gray-500 mt-0.5">GSM / SIM</div>
             <div class="text-[10px] text-gray-600" x-text="provisionResult?.gsm?.operator ? provisionResult.gsm.operator+' '+provisionResult.gsm.mcc_mnc : ''"></div>
+          </div>
+          <div class="text-center">
+            <div class="text-2xl font-bold" :class="provisionResult?.google_signin?.success?'text-green-400':provisionResult?.google_signin?.skipped?'text-gray-500':'text-red-400'" x-text="provisionResult?.google_signin?.success?'&#10003; OK':provisionResult?.google_signin?.skipped?'—':'&#10007;'"></div>
+            <div class="text-[10px] text-gray-500 mt-0.5">Google Sign-In</div>
+            <div class="text-[10px] text-gray-600" x-text="provisionResult?.google_signin?.skipped?'Skipped':provisionResult?.google_signin?.email||''"></div>
+          </div>
+          <div class="text-center">
+            <div class="text-2xl font-bold" :class="provisionResult?.proxy?.skipped?'text-gray-500':provisionResult?.proxy?.error?'text-red-400':'text-green-400'" x-text="provisionResult?.proxy?.skipped?'—':provisionResult?.proxy?.error?'&#10007;':'&#10003;'"></div>
+            <div class="text-[10px] text-gray-500 mt-0.5">Proxy</div>
+            <div class="text-[10px] text-gray-600" x-text="provisionResult?.proxy?.skipped?'Skipped':provisionResult?.proxy?.method||provisionResult?.proxy?.error||''"></div>
           </div>
         </div>
         <div class="mt-3 text-xs grid grid-cols-2 gap-x-4 gap-y-1 text-gray-400">
@@ -1611,20 +1637,25 @@
 </main>
 
 <!-- DEVICE SCREEN MODAL -->
-<div x-show="showScreen" x-cloak class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center" @click.self="showScreen=false;if(_screenPollTimer)clearInterval(_screenPollTimer)">
-  <div class="bg-[#111827] rounded-2xl border border-gray-700 overflow-hidden w-[420px]">
-    <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800">
+<div x-show="showScreen" x-cloak class="fixed inset-0 bg-black/90 z-50 flex items-center justify-center" @click.self="showScreen=false;if(_screenPollTimer)clearInterval(_screenPollTimer)" @keydown.escape.window="if(showScreen){showScreen=false;if(_screenPollTimer)clearInterval(_screenPollTimer)}">
+  <div class="bg-[#111827] rounded-2xl border border-gray-700 overflow-hidden flex flex-col" :class="screenFullscreen?'w-full h-full rounded-none':'w-[460px]'" :style="screenFullscreen?'':'max-height:92vh'">
+    <!-- Header bar -->
+    <div class="flex items-center justify-between px-4 py-2 border-b border-gray-800 flex-shrink-0">
       <div class="flex items-center gap-2">
-        <span class="text-sm text-cyan-400" x-text="screenDevice?.id||''"></span>
+        <div class="w-2 h-2 rounded-full" :class="(_streamMode||'')==='connected'?'bg-green-500 pulse-dot':'bg-gray-600'"></div>
+        <span class="text-sm font-semibold text-cyan-400" x-text="screenDevice?.id||''"></span>
         <span class="text-[10px] px-1.5 py-0.5 rounded font-medium" :class="screenDevice?.device_type==='cuttlefish'?'bg-cyan-600/80 text-cyan-100':screenDevice?.device_type==='redroid'?'bg-purple-600/80 text-purple-100':'bg-gray-600/80 text-gray-100'" x-text="devTypeName(screenDevice?.device_type)"></span>
+        <span class="text-[10px] text-gray-500" x-text="screenDevice?.model?presetName(screenDevice.model):''"></span>
       </div>
-      <div class="flex gap-2">
-        <a x-show="screenDevice?.device_type==='cuttlefish'" :href="'https://'+location.hostname+':8443'" target="_blank" class="text-xs text-gray-400 hover:text-white px-2 py-1 bg-[#1e293b] rounded">WebRTC</a>
-        <a x-show="screenDevice?.device_type!=='cuttlefish'" :href="'/scrcpy/'" target="_blank" class="text-xs text-gray-400 hover:text-white px-2 py-1 bg-[#1e293b] rounded">HD Stream</a>
-        <button @click="showScreen=false;if(_screenPollTimer)clearInterval(_screenPollTimer)" class="text-gray-400 hover:text-white text-lg">&times;</button>
+      <div class="flex items-center gap-1.5">
+        <a x-show="screenDevice?.device_type==='cuttlefish'" :href="'https://'+location.hostname+':8443'" target="_blank" class="text-[10px] text-gray-400 hover:text-white px-2 py-1 bg-[#1e293b] rounded hover:bg-cyan-900/50 transition-colors">WebRTC</a>
+        <a x-show="screenDevice?.device_type!=='cuttlefish'" :href="'/scrcpy/'" target="_blank" class="text-[10px] text-gray-400 hover:text-white px-2 py-1 bg-[#1e293b] rounded hover:bg-cyan-900/50 transition-colors">HD Stream</a>
+        <button @click="screenFullscreen=!screenFullscreen" class="text-gray-400 hover:text-white px-1.5 py-1 bg-[#1e293b] rounded text-[10px] hover:bg-cyan-900/50 transition-colors" x-text="screenFullscreen?'&#9723; Exit':'&#9723; Full'"></button>
+        <button @click="showScreen=false;if(_screenPollTimer)clearInterval(_screenPollTimer);if(screenWs)screenWs.close()" class="text-gray-400 hover:text-white text-lg leading-none px-1">&times;</button>
       </div>
     </div>
-    <div class="bg-black flex items-center justify-center relative" style="height:600px">
+    <!-- Screen viewport -->
+    <div class="bg-black flex items-center justify-center relative flex-1 min-h-0" :style="screenFullscreen?'':'height:640px'">
       <canvas id="screenCanvas" width="540" height="600" class="max-w-full max-h-full cursor-pointer"
         @click="canvasTap($event)" @mousedown="_canvasDown=$event" @mouseup="canvasSwipeEnd($event)"
         @touchstart.prevent="canvasTouchStart($event)" @touchend.prevent="canvasTouchEnd($event)"></canvas>
@@ -1632,11 +1663,31 @@
         <span class="bg-black/70 text-green-400 px-1.5 py-0.5 rounded" x-text="(_streamFps||0)+' FPS'"></span>
         <span class="bg-black/70 text-cyan-400 px-1.5 py-0.5 rounded" x-text="(_streamMode||'—')"></span>
       </div>
+      <div x-show="(_streamMode||'')==='connecting...'" class="absolute inset-0 flex items-center justify-center bg-black/60">
+        <div class="text-center"><div class="inline-block w-6 h-6 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin mb-2"></div><div class="text-xs text-gray-400">Connecting to device...</div></div>
+      </div>
     </div>
-    <div class="flex justify-center gap-4 py-2 border-t border-gray-800">
-      <button @click="screenInput('back')" class="text-xs text-gray-400 hover:text-white px-3 py-1">&#9664; Back</button>
-      <button @click="screenInput('home')" class="text-xs text-gray-400 hover:text-white px-3 py-1">&#9679; Home</button>
-      <button @click="screenInput('recents')" class="text-xs text-gray-400 hover:text-white px-3 py-1">&#9654; Recents</button>
+    <!-- Text input bar -->
+    <div class="flex items-center gap-2 px-3 py-1.5 border-t border-gray-800 bg-[#0d1117] flex-shrink-0">
+      <input type="text" x-ref="screenTextInput" class="flex-1 bg-[#1e293b] border border-gray-700 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-cyan-500" placeholder="Type text and press Enter to send to device..." @keydown.enter="screenTypeText($refs.screenTextInput.value);$refs.screenTextInput.value=''">
+      <button @click="screenTypeText($refs.screenTextInput.value);$refs.screenTextInput.value=''" class="text-[10px] text-gray-400 hover:text-white px-2 py-1 bg-[#1e293b] rounded hover:bg-cyan-900/50">Send</button>
+    </div>
+    <!-- Navigation bar -->
+    <div class="flex items-center justify-between px-3 py-1.5 border-t border-gray-800 bg-[#0d1117] flex-shrink-0">
+      <div class="flex gap-1">
+        <button @click="screenInput('KEYCODE_VOLUME_DOWN')" class="text-[10px] text-gray-500 hover:text-white px-2 py-1 bg-[#1e293b] rounded hover:bg-gray-700 transition-colors" title="Volume Down">Vol-</button>
+        <button @click="screenInput('KEYCODE_VOLUME_UP')" class="text-[10px] text-gray-500 hover:text-white px-2 py-1 bg-[#1e293b] rounded hover:bg-gray-700 transition-colors" title="Volume Up">Vol+</button>
+        <button @click="screenInput('KEYCODE_POWER')" class="text-[10px] text-gray-500 hover:text-white px-2 py-1 bg-[#1e293b] rounded hover:bg-gray-700 transition-colors" title="Power">Power</button>
+      </div>
+      <div class="flex gap-3">
+        <button @click="screenInput('back')" class="text-xs text-gray-400 hover:text-white px-3 py-1 rounded hover:bg-[#1e293b] transition-colors">&#9664; Back</button>
+        <button @click="screenInput('home')" class="text-xs text-gray-400 hover:text-white px-3 py-1 rounded hover:bg-[#1e293b] transition-colors">&#9679; Home</button>
+        <button @click="screenInput('recents')" class="text-xs text-gray-400 hover:text-white px-3 py-1 rounded hover:bg-[#1e293b] transition-colors">&#9632; Recents</button>
+      </div>
+      <div class="flex gap-1">
+        <button @click="screenRotate()" class="text-[10px] text-gray-500 hover:text-white px-2 py-1 bg-[#1e293b] rounded hover:bg-gray-700 transition-colors" title="Rotate">&#8635;</button>
+        <button @click="screenScreenshot()" class="text-[10px] text-gray-500 hover:text-white px-2 py-1 bg-[#1e293b] rounded hover:bg-gray-700 transition-colors" title="Screenshot">&#128247;</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1646,7 +1697,7 @@ function titanConsole() {
   return {
     section: 'dashboard',
     devices: [], presets: [], carriers: {}, locations: {}, profiles: [],
-    creating: false, showScreen: false, screenDevice: null, screenWs: null, _streamFps: 0, _streamMode: '', _canvasDown: null, _canvasTouchStart: null, _screenDevW: 1080, _screenDevH: 2400,
+    creating: false, showScreen: false, screenFullscreen: false, screenDevice: null, screenWs: null, _streamFps: 0, _streamMode: '', _canvasDown: null, _canvasTouchStart: null, _screenDevW: 1080, _screenDevH: 2400,
     forging: false, forgeResult: null, forgeLog: '', osintLog: '', osintResult: null,
     provisionJob: null, provisionResult: null, _provisionPollTimer: null,
     smartForgeLog: '', injecting: false, injectLog: '', trustScore: null,
@@ -1667,7 +1718,7 @@ function titanConsole() {
     faceswap: { source_b64:'',target_b64:'',running:false,log:'',result_b64:'' },
     occupations: [], countries: [], agentModels: [],
 
-    forge: { name:'',gender:'auto',country:'US',dob:'',ssn:'',phone:'',street:'',city:'',state:'',zip:'',cc:'',cc_exp:'',cc_cvv:'',email:'',target:'',occupation:'auto',use_ai:true,proxy:'',proxy_status:'',osint_name:'',osint_email:'',osint_username:'',osint_phone:'',osint_instagram:'',osint_domain:'',osint_location:'',device_id:'',age_days:90,device_model:'samsung_s25_ultra',carrier:'tmobile_us',location:'nyc' },
+    forge: { name:'',gender:'auto',country:'US',dob:'',ssn:'',phone:'',street:'',city:'',state:'',zip:'',cc:'',cc_exp:'',cc_cvv:'',email:'',target:'',occupation:'auto',use_ai:true,proxy:'',proxy_status:'',google_email:'',google_password:'',real_phone:'',otp_code:'',otp_status:'',osint_name:'',osint_email:'',osint_username:'',osint_phone:'',osint_instagram:'',osint_domain:'',osint_location:'',device_id:'',age_days:90,device_model:'samsung_s25_ultra',carrier:'tmobile_us',location:'nyc' },
     smartForge: { occupation:'auto',country:'US',age:28,gender:'auto',target_site:'',age_days:90,use_ai:true,name:'',email:'',dob:'',ssn:'',phone:'',street:'',city:'',state:'',zip:'',cc:'',cc_exp:'',cc_cvv:'',device_id:'' },
     inject: { device_id:'',profile_id:'',cc:'',cc_exp:'',cc_cvv:'',cc_name:'',bundle:'us_standard',age_days:90 },
     aging: { device_id:'',age_days:90,preset:'pixel_9_pro',carrier:'tmobile_us',location:'nyc',persona:'' },
@@ -1813,6 +1864,21 @@ function titanConsole() {
       const keyMap={back:'KEYCODE_BACK',home:'KEYCODE_HOME',recents:'KEYCODE_APP_SWITCH'};
       this.screenWs.send(JSON.stringify({type:'key',code:keyMap[key]||key}));
     },
+    screenTypeText(text) {
+      if(!text||!this.screenDevice||!this.screenWs||this.screenWs.readyState!==1) return;
+      this.screenWs.send(JSON.stringify({type:'text',text:text}));
+    },
+    async screenRotate() {
+      if(!this.screenDevice) return;
+      try { await this.api('/devices/'+this.screenDevice.id+'/input',{method:'POST',body:JSON.stringify({type:'rotate'})}); } catch(e) {}
+    },
+    async screenScreenshot() {
+      if(!this.screenDevice) return;
+      try {
+        const r=await fetch('/api/devices/'+this.screenDevice.id+'/screenshot?t='+Date.now());
+        if(r.ok){const blob=await r.blob();const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='screenshot-'+this.screenDevice.id+'-'+Date.now()+'.png';a.click();}
+      } catch(e) {}
+    },
     _canvasToDevice(e) {
       const canvas=e.target;
       const rect=canvas.getBoundingClientRect();
@@ -1898,7 +1964,7 @@ function titanConsole() {
     // Genesis Forge — one-click full provision
     async forgeAndProvision() {
       this.forging=true; this.forgeResult=null; this.provisionJob=null; this.provisionResult=null;
-      this.forgeLog='[1/4] Forging profile...\n';
+      this.forgeLog='[1/6] Forging profile...\n';
       try {
         const body = {
           name:this.forge.name, email:this.forge.email, phone:this.forge.phone,
@@ -1912,11 +1978,11 @@ function titanConsole() {
         };
         const r = await this.api('/genesis/create',{method:'POST',body:JSON.stringify(body)});
         this.forgeResult = r;
-        this.forgeLog+='[2/4] Profile created: '+r.profile_id+'\n';
+        this.forgeLog+='[2/6] Profile created: '+r.profile_id+'\n';
         this.forgeLog+='  '+r.stats.contacts+' contacts / '+r.stats.call_logs+' calls / '+r.stats.sms+' SMS / '+r.stats.cookies+' cookies\n';
         await this.loadProfiles();
 
-        this.forgeLog+='[3/4] Starting inject + patch pipeline...\n';
+        this.forgeLog+='[3/6] Starting provision pipeline (inject → proxy → Google sign-in → patch → verify)...\n';
         const pr = await this.api('/genesis/full-provision/'+this.forge.device_id,{method:'POST',body:JSON.stringify({
           profile_id: r.profile_id,
           cc_number: this.forge.cc,
@@ -1925,6 +1991,11 @@ function titanConsole() {
           cc_cvv: this.forge.cc_cvv,
           cc_cardholder: this.forge.name,
           lockdown: false,
+          proxy_url: this.forge.proxy||'',
+          google_email: this.forge.google_email||'',
+          google_password: this.forge.google_password||'',
+          real_phone: this.forge.real_phone||'',
+          otp_code: this.forge.otp_code||'',
         })});
         this.provisionJob = {status:'running', step:'inject', step_n:1};
         this.forgeLog+='  Job: '+pr.job_id+' — polling...\n';
@@ -1935,10 +2006,14 @@ function titanConsole() {
             try {
               const st = await this.api('/genesis/provision-status/'+pr.job_id);
               this.provisionJob = st;
-              if(st.step==='patch') this.forgeLog = this.forgeLog.replace(/\[3\/4\].*/s,'[3/4] Full patch running ('+( st.phases_passed||'?')+'/'+( st.phases_total||'26')+' phases)...\n');
+              if(st.step==='patch') this.forgeLog = this.forgeLog.replace(/\[3\/6\].*/s,'[4/6] Full patch running ('+( st.phases_passed||'?')+'/'+( st.phases_total||'26')+' phases)...\n');
+              if(st.step==='google_signin') this.forgeLog = this.forgeLog.replace(/\[3\/6\].*/s,'[3/6] Signing into Google account on device...\n');
+              if(st.step==='proxy') this.forgeLog = this.forgeLog.replace(/\[3\/6\].*/s,'[3/6] Configuring proxy on device...\n');
               if(st.status==='completed') {
                 this.provisionResult = st;
-                this.forgeLog+='[4/4] Done! Stealth: '+st.patch_score+'% | Trust: '+st.trust_score+'/100 | GSM: '+(st.gsm?.ok?'OK ✓':'FAIL ✗')+' '+( st.gsm?.operator||'')+'\n';
+                const gsm_status = st.gsm?.ok?'OK ✓':'FAIL ✗';
+                const google_status = st.google_signin?.success?'OK ✓':st.google_signin?.skipped?'Skipped':'FAIL ✗';
+                this.forgeLog+='[6/6] Done! Stealth: '+st.patch_score+'% | Trust: '+st.trust_score+'/100 | GSM: '+gsm_status+' '+(st.gsm?.operator||'')+' | Google: '+google_status+'\n';
                 resolve();
               } else if(st.status==='failed') {
                 this.forgeLog+='ERROR: '+st.error+'\n';
@@ -1990,6 +2065,7 @@ function titanConsole() {
     },
     previewProfile() { this.forgeLog='Preview:\n'+JSON.stringify(this.forge,null,2); },
     async testProxy() { this.forge.proxy_status='Testing...'; try { const r=await this.api('/network/proxy-test',{method:'POST',body:JSON.stringify({proxy:this.forge.proxy})}); this.forge.proxy_status=r.reachable?'OK ('+r.latency_ms+'ms)':'FAILED: '+r.error; } catch(e) { this.forge.proxy_status='Error: '+e.message; } },
+    async requestOtp() { if(!this.forge.real_phone) return; this.forge.otp_status='waiting'; try { const r=await this.api('/genesis/request-otp',{method:'POST',body:JSON.stringify({phone:this.forge.real_phone})}); if(r.otp) { this.forge.otp_code=r.otp; this.forge.otp_status='received'; } else { this.forge.otp_status='waiting'; } } catch(e) { this.forge.otp_status='error'; } },
     async runOsint() { this.osintLog='Running OSINT...\n'; try { const r=await this.api('/intel/osint',{method:'POST',body:JSON.stringify({name:this.forge.osint_name,email:this.forge.osint_email,username:this.forge.osint_username,phone:this.forge.osint_phone,domain:this.forge.osint_domain})}); this.osintResult=r; this.osintLog+=JSON.stringify(r.result||r,null,2); } catch(e) { this.osintLog+='Error: '+e.message; } },
     applyOsint() { if(!this.osintResult)return; this.forgeLog+='Applied OSINT data to profile\n'; },
 

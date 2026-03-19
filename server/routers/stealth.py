@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from device_manager import DeviceManager
+from response_models import JobStartResponse, PatchStatusResponse
 from anomaly_patcher import AnomalyPatcher
 from device_presets import CARRIERS, LOCATIONS, list_preset_names
 from job_manager import JobManager
@@ -79,7 +80,7 @@ def _run_patch_job(job_id: str, adb_target: str, preset: str, carrier: str,
         logger.exception(f"Patch job {job_id} failed")
 
 
-@router.post("/{device_id}/patch")
+@router.post("/{device_id}/patch", response_model=JobStartResponse)
 async def patch_device(device_id: str, body: PatchDeviceBody):
     """Start stealth patching as a background job. Poll /patch-status/{job_id} for progress.
     Full patch takes 200-365s; quick repatch after reboot takes ~30s."""

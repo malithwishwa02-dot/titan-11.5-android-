@@ -161,12 +161,18 @@ class FullProvisionBody(BaseModel):
     preset: str = ""       # optional override; defaults to profile's device_model
     lockdown: bool = False
     proxy_url: str = ""    # SOCKS5 proxy URL (e.g. socks5h://user:pass@host:port)
+    google_email: str = ""     # Google account email for pre-injection sign-in
+    google_password: str = ""  # Google account password
+    real_phone: str = ""       # Real phone number for OTP verification (e.g. +14304314828)
+    otp_code: str = ""         # Pre-supplied OTP code (if manually entered)
 
 
 def _run_provision_job(job_id: str, adb_target: str, profile_data: dict,
                        card_data: Optional[dict], preset: str, lockdown: bool,
-                       proxy_url: str = ""):
-    """Background worker: inject -> proxy -> patch -> GSM verify -> trust score."""
+                       proxy_url: str = "", google_email: str = "",
+                       google_password: str = "", real_phone: str = "",
+                       otp_code: str = ""):
+    """Background worker: inject -> proxy -> google sign-in -> patch -> GSM verify -> trust score."""
     from adb_utils import adb_shell
 
     try:
@@ -177,33 +183,61 @@ def _run_provision_job(job_id: str, adb_target: str, profile_data: dict,
         _provision_mgr.update(job_id, {"inject_trust": inj_result.trust_score})
 
         # -- Step 2: Proxy configuration (optional)
+        _provision_mgr.update(job_id, {"step": "proxy", "step_n": 2})
         if proxy_url:
-            _provision_mgr.update(job_id, {"step": "proxy", "step_n": 2})
             try:
                 from proxy_router import ProxyRouter
                 router_inst = ProxyRouter(adb_target=adb_target)
                 proxy_result = router_inst.configure_socks5(proxy_url)
-                _provision_mgr.update(job_id, {"proxy": proxy_result})
-                logger.info(f"Provision job {job_id}: proxy configured via {proxy_result.get('method', '?')}")
+                _provision_mgr.update(job_id, {"proxy": proxy_result.to_dict()})
+                logger.info(f"Provision job {job_id}: proxy configured via {proxy_result.method or '?'}")
             except Exception as pe:
                 logger.warning(f"Provision job {job_id}: proxy config failed: {pe}")
                 _provision_mgr.update(job_id, {"proxy": {"error": str(pe)}})
+        else:
+            _provision_mgr.update(job_id, {"proxy": {"skipped": True}})
 
-        # -- Step 3: Full patch (26 phases, 103+ vectors)
+        # -- Step 3: Full patch (26 phases, 103+ vectors) — includes GApps bootstrap
         _provision_mgr.update(job_id, {"step": "patch", "step_n": 3})
         from anomaly_patcher import AnomalyPatcher
         carrier  = profile_data.get("carrier",      "tmobile_us")
         location = profile_data.get("location",     "nyc")
         model    = preset or profile_data.get("device_model", "samsung_s25_ultra")
         patcher  = AnomalyPatcher(adb_target=adb_target)
-        report   = patcher.full_patch(model, carrier, location, lockdown=lockdown)
+        # Use quick_repatch if config exists (skips Phase 9 media which inject already did)
+        if patcher.get_saved_patch_config():
+            logger.info(f"Provision job {job_id}: using quick_repatch (skipping Phase 9 media)")
+            report = patcher.quick_repatch()
+        else:
+            logger.info(f"Provision job {job_id}: running full_patch with minimal age_days=1")
+            report = patcher.full_patch(model, carrier, location, lockdown=lockdown, age_days=1)
         _provision_mgr.update(job_id, {
             "patch_score": report.score, "phases_passed": report.passed,
             "phases_total": report.total, "patch_results": report.results[:40],
         })
 
-        # -- Step 4: GSM verify
-        _provision_mgr.update(job_id, {"step": "gsm_verify", "step_n": 4})
+        # -- Step 4: Google Account Sign-In (optional, post-patch so GMS/GSF available)
+        _provision_mgr.update(job_id, {"step": "google_signin", "step_n": 4})
+        if google_email and google_password:
+            try:
+                from google_account_creator import GoogleAccountCreator
+                gac = GoogleAccountCreator(adb_target=adb_target)
+                signin_result = gac.sign_in_existing(
+                    email=google_email,
+                    password=google_password,
+                    phone_number=real_phone,
+                    otp_code=otp_code,
+                )
+                _provision_mgr.update(job_id, {"google_signin": signin_result.to_dict()})
+                logger.info(f"Provision job {job_id}: Google sign-in {'OK' if signin_result.success else 'FAILED'}")
+            except Exception as ge:
+                logger.warning(f"Provision job {job_id}: Google sign-in failed: {ge}")
+                _provision_mgr.update(job_id, {"google_signin": {"error": str(ge), "success": False}})
+        else:
+            _provision_mgr.update(job_id, {"google_signin": {"skipped": True}})
+
+        # -- Step 5: GSM verify
+        _provision_mgr.update(job_id, {"step": "gsm_verify", "step_n": 5})
         gsm_state    = adb_shell(adb_target, "getprop gsm.sim.state")
         gsm_operator = adb_shell(adb_target, "getprop gsm.sim.operator.alpha")
         gsm_mcc_mnc  = adb_shell(adb_target, "getprop gsm.sim.operator.numeric")
@@ -220,8 +254,8 @@ def _run_provision_job(job_id: str, adb_target: str, profile_data: dict,
             "expected_carrier": carrier,
         }})
 
-        # -- Step 5: Trust score (canonical 14-check scorer)
-        _provision_mgr.update(job_id, {"step": "trust_score", "step_n": 5})
+        # -- Step 6: Trust score (canonical 14-check scorer)
+        _provision_mgr.update(job_id, {"step": "trust_score", "step_n": 6})
         from trust_scorer import compute_trust_score
         trust_result = compute_trust_score(adb_target)
         trust_score = trust_result["trust_score"]
@@ -229,7 +263,7 @@ def _run_provision_job(job_id: str, adb_target: str, profile_data: dict,
         _provision_mgr.update(job_id, {
             "status": "completed",
             "step": "done",
-            "step_n": 5,
+            "step_n": 6,
             "trust_score": trust_score,
             "trust_checks": trust_result["checks"],
             "completed_at": _time_mod.time(),
@@ -273,7 +307,9 @@ async def genesis_full_provision(device_id: str, body: FullProvisionBody):
     t = threading.Thread(
         target=_run_provision_job,
         args=(job_id, dev.adb_target, profile_data, card_data,
-              body.preset, body.lockdown, body.proxy_url),
+              body.preset, body.lockdown, body.proxy_url,
+              body.google_email, body.google_password,
+              body.real_phone, body.otp_code),
         daemon=True,
     )
     t.start()

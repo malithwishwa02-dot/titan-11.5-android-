@@ -406,6 +406,161 @@ class GoogleAccountCreator:
 
         return result
 
+    def sign_in_existing(self, email: str, password: str,
+                         phone_number: str = "", otp_code: str = "",
+                         otp_callback=None) -> AccountCreationResult:
+        """
+        Sign into an EXISTING Google account on the device.
+
+        This is the pre-injection sign-in flow:
+        Settings → Add Account → Google → Sign In → email → password → OTP → done.
+
+        Args:
+            email: Google account email (e.g. persona@gmail.com)
+            password: Google account password
+            phone_number: Real phone number for OTP verification
+            otp_code: Pre-supplied OTP code (skip waiting if provided)
+            otp_callback: Optional callback(phone) -> str returning 6-digit OTP
+
+        Returns:
+            AccountCreationResult with success status and steps completed
+        """
+        result = AccountCreationResult(
+            email=email, password=password, phone_used=phone_number
+        )
+        self._otp_callback = otp_callback
+
+        if not self._check_gms_ready():
+            result.errors.append("GMS/GSF not installed — run GAppsBootstrap first")
+            return result
+
+        logger.info(f"Signing into existing Google account: {email}")
+
+        try:
+            # Step 1: Open Settings → Add Account
+            logger.info("Step 1: Opening Settings > Add Account")
+            self._sh("am start -a android.settings.ADD_ACCOUNT_SETTINGS")
+            time.sleep(2)
+            result.steps_completed.append("open_settings")
+
+            # Step 2: Select Google
+            logger.info("Step 2: Selecting Google account type")
+            if not self._find_and_tap("Google", timeout=10):
+                result.errors.append("Could not find Google option in account settings")
+                return result
+            time.sleep(3)
+            result.steps_completed.append("select_google")
+
+            # Step 3: Enter email (sign-in screen)
+            logger.info(f"Step 3: Entering email: {email}")
+            # Wait for the email input field
+            self._wait_for_screen(["Sign in", "Email or phone", "Google"], timeout=15)
+            time.sleep(1)
+            self._type_text(email, slow=True)
+            time.sleep(0.5)
+            # Tap Next button
+            if not self._find_and_tap("Next", timeout=5):
+                self._press_enter()
+            time.sleep(3)
+            result.steps_completed.append("enter_email")
+
+            # Step 4: Enter password
+            logger.info("Step 4: Entering password")
+            self._wait_for_screen(["password", "Enter your password"], timeout=10)
+            time.sleep(1)
+            self._type_text(password, slow=True)
+            time.sleep(0.5)
+            if not self._find_and_tap("Next", timeout=5):
+                self._press_enter()
+            time.sleep(3)
+            result.steps_completed.append("enter_password")
+
+            # Step 5: Phone verification (if required)
+            # Google may or may not require phone verification for sign-in
+            ok, dump = self._sh("uiautomator dump /dev/tty 2>/dev/null")
+            needs_otp = ok and any(
+                kw in dump.lower() for kw in [
+                    "verify", "phone", "2-step", "confirm",
+                    "verification", "code", "sms"
+                ]
+            )
+
+            if needs_otp and (phone_number or otp_code):
+                logger.info("Step 5: Phone/OTP verification required")
+                result.otp_required = True
+
+                # If phone number entry is needed
+                if phone_number and "phone" in dump.lower():
+                    phone_digits = phone_number.lstrip("+").lstrip("1")
+                    self._type_text(phone_digits)
+                    time.sleep(0.5)
+                    if not self._find_and_tap("Send", timeout=5):
+                        if not self._find_and_tap("Next", timeout=3):
+                            self._press_enter()
+                    time.sleep(3)
+                    result.steps_completed.append("enter_phone")
+
+                # Get OTP
+                otp = otp_code  # Use pre-supplied OTP first
+                if not otp:
+                    otp = self._wait_for_otp(phone_number, timeout=90)
+                if otp:
+                    logger.info(f"Entering OTP: {otp}")
+                    result.otp_received = otp
+                    self._type_text(otp)
+                    time.sleep(0.5)
+                    if not self._find_and_tap("Next", timeout=3):
+                        self._press_enter()
+                    time.sleep(3)
+                    result.steps_completed.append("enter_otp")
+                else:
+                    result.errors.append("OTP required but not received")
+                    logger.warning("OTP not received — sign-in may be incomplete")
+            else:
+                logger.info("Step 5: No OTP required (skipped)")
+                result.steps_completed.append("otp_skipped")
+
+            # Step 6: Accept terms / prompts
+            logger.info("Step 6: Accepting terms and prompts")
+            for prompt in ["I agree", "Accept", "More", "Yes, I'm in", "Next", "Skip"]:
+                if self._find_and_tap(prompt, timeout=3):
+                    time.sleep(1.5)
+            # Scroll down for any hidden "I agree" button
+            self._sh("input swipe 540 1500 540 500 500")
+            time.sleep(1)
+            for prompt in ["I agree", "Accept"]:
+                self._find_and_tap(prompt, timeout=2)
+                time.sleep(1)
+            result.steps_completed.append("accept_terms")
+
+            # Step 7: Verify account is signed in
+            logger.info("Step 7: Verifying sign-in")
+            time.sleep(2)
+            ok, accounts = self._sh(
+                "dumpsys account 2>/dev/null | grep -i 'Account.*com.google' | head -5"
+            )
+            email_prefix = email.split("@")[0].lower()
+            if ok and email_prefix in accounts.lower():
+                result.success = True
+                logger.info(f"Successfully signed into: {email}")
+            else:
+                # Broader check
+                ok, check = self._sh("dumpsys account 2>/dev/null | grep -c 'com.google'")
+                if ok and check.strip().isdigit() and int(check.strip()) > 0:
+                    result.success = True
+                    logger.info(f"Google account present on device (likely: {email})")
+                else:
+                    result.errors.append("Sign-in could not be verified")
+                    logger.warning("Sign-in verification inconclusive")
+
+            result.steps_completed.append("verify_signin")
+
+        except Exception as e:
+            result.errors.append(f"Exception: {str(e)}")
+            logger.error(f"Google sign-in failed: {e}")
+
+        return result
+
     def create_account_with_manual_otp(self, 
                                         persona: Dict[str, Any],
                                         phone_number: str) -> AccountCreationResult:

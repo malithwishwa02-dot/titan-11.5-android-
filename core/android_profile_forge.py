@@ -50,6 +50,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from exceptions import ProfileForgeError
+
 logger = logging.getLogger("titan.android-forge")
 
 TITAN_DATA = Path(os.environ.get("TITAN_DATA", "/opt/titan/data"))

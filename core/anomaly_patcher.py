@@ -52,6 +52,7 @@ from device_presets import (
     CARRIERS, DEVICE_PRESETS, LOCATIONS, CarrierProfile, DevicePreset,
     get_preset,
 )
+from exceptions import PatchPhaseError, ResetpropError
 
 logger = logging.getLogger("titan.patcher")
 
@@ -247,7 +248,7 @@ class AnomalyPatcher:
             finally:
                 elapsed = time.time() - t0
                 self._phase_timings[phase_name] = elapsed
-                logger.debug(f"  {phase_name}: {elapsed:.2f}s")
+                logger.info(f"  {phase_name}: {elapsed:.2f}s")
         return _timer()
 
     # ─── RESETPROP (Magisk) — override read-only ro.* props ─────────
@@ -1074,10 +1075,10 @@ class AnomalyPatcher:
                 f"--bind mimetype:s:vnd.android.cursor.item/phone_v2 "
                 f"--bind data1:s:{number} --bind data2:i:2"
             )
-        # Android shell length limit: batch in chunks of 20
-        for chunk_start in range(0, len(contact_cmds), 20):
-            chunk = contact_cmds[chunk_start:chunk_start + 20]
-            self._sh(";".join(chunk), timeout=60)
+        # Android shell length limit: batch in chunks of 10 (reduced from 20 for Cuttlefish stability)
+        for chunk_start in range(0, len(contact_cmds), 10):
+            chunk = contact_cmds[chunk_start:chunk_start + 10]
+            self._sh(";".join(chunk), timeout=30)
         self._record("contacts", True, f"{num_contacts} contacts added (age={age_days}d)")
 
         # Call logs — scale with age: ~1.5 calls/day avg
@@ -1099,10 +1100,10 @@ class AnomalyPatcher:
                 f"--bind number:s:{number} --bind date:l:{date_ms} "
                 f"--bind duration:i:{duration} --bind type:i:{call_type}"
             )
-        # Batch in chunks of 30
-        for chunk_start in range(0, len(call_cmds), 30):
-            chunk = call_cmds[chunk_start:chunk_start + 30]
-            self._sh(";".join(chunk), timeout=60)
+        # Batch in chunks of 15 (reduced from 30 for Cuttlefish stability)
+        for chunk_start in range(0, len(call_cmds), 15):
+            chunk = call_cmds[chunk_start:chunk_start + 15]
+            self._sh(";".join(chunk), timeout=30)
         self._record("call_logs", True, f"{num_calls} call records added (age={age_days}d)")
 
         # Gallery — create DCIM photos scaled to device age with brand filename format
@@ -1140,10 +1141,10 @@ class AnomalyPatcher:
                 f"echo -ne '\\x{jpeg_eoi_hex}' | xxd -r -p >> /sdcard/DCIM/Camera/{fname}"
             )
 
-        # Execute in batches of 10 to avoid ARG_MAX limits
-        for chunk_start in range(0, len(photo_cmds), 10):
-            chunk = photo_cmds[chunk_start:chunk_start + 10]
-            self._sh(";".join(chunk), timeout=120)
+        # Execute in batches of 5 to avoid ARG_MAX limits and Cuttlefish I/O bottlenecks
+        for chunk_start in range(0, len(photo_cmds), 5):
+            chunk = photo_cmds[chunk_start:chunk_start + 5]
+            self._sh(";".join(chunk), timeout=60)
 
         # Trigger MediaScanner to index all new photos
         self._sh(

@@ -246,6 +246,46 @@ async def genesis_smartforge(body: SmartForgeBody):
         raise HTTPException(500, str(e))
 
 
+class OtpRequestBody(BaseModel):
+    phone: str = ""
+
+
+@router.post("/request-otp")
+async def genesis_request_otp(body: OtpRequestBody):
+    """Request OTP for Google account verification.
+    
+    The OTP is sent by Google to the real phone number during sign-in.
+    This endpoint checks if an OTP has been received on the device
+    (via SMS forwarding or notification interception).
+    In most cases the user enters the OTP manually from their real phone.
+    """
+    if not body.phone:
+        raise HTTPException(400, "Phone number required")
+    
+    # Check if device has received any recent OTP via SMS
+    # This works if SMS forwarding is set up to the device
+    try:
+        import re
+        from adb_utils import adb_shell
+        # Try to read recent SMS for Google verification code
+        sms_out = adb_shell(
+            "127.0.0.1:6520",
+            "content query --uri content://sms/inbox --projection body "
+            "--sort \"date DESC\" 2>/dev/null | head -5"
+        )
+        if sms_out:
+            code_match = re.search(r'G-(\d{6})', sms_out)
+            if code_match:
+                return {"otp": code_match.group(1), "source": "device_sms"}
+            code_match = re.search(r'\b(\d{6})\b', sms_out)
+            if code_match:
+                return {"otp": code_match.group(1), "source": "device_sms"}
+    except Exception as e:
+        logger.debug(f"OTP auto-detect failed: {e}")
+    
+    return {"otp": None, "source": "manual", "message": f"Enter OTP sent to {body.phone} manually"}
+
+
 @router.get("/occupations")
 async def genesis_occupations():
     from smartforge_bridge import get_occupations

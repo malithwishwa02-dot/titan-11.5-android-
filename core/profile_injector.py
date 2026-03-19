@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from adb_utils import adb as _adb, adb_shell as _adb_shell, adb_push as _adb_push, ensure_adb_root as _ensure_adb_root
+from exceptions import InjectionError
 
 logger = logging.getLogger("titan.profile-injector")
 
@@ -1625,6 +1626,10 @@ class ProfileInjector:
         if install_cmds:
             _adb_shell(self.target, "; ".join(install_cmds))
             logger.info(f"  Install times: backdated {len(install_cmds)} packages (filesystem)")
+        if pm_cmds:
+            # pm set-install-time may not exist on all Android versions — non-fatal
+            _adb_shell(self.target, "; ".join(pm_cmds))
+            logger.info(f"  Install times: backdated {len(pm_cmds)} packages (PackageManager)")
 
     # ─── PAYMENT HISTORY INJECTION (P3-1) ────────────────────────────────
 
@@ -1656,7 +1661,3 @@ class ProfileInjector:
         except Exception as e:
             logger.warning(f"  Payment history injection failed: {e}")
             self.result.errors.append(f"payment_history: {e}")
-        if pm_cmds:
-            # pm set-install-time may not exist on all Android versions — non-fatal
-            _adb_shell(self.target, "; ".join(pm_cmds))
-            logger.info(f"  Install times: backdated {len(pm_cmds)} packages (PackageManager)")

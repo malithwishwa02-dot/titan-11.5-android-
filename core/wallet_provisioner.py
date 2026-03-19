@@ -52,6 +52,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from adb_utils import adb as _adb, adb_shell as _adb_shell, adb_push as _adb_push, ensure_adb_root as _ensure_adb_root
+from exceptions import WalletProvisionError
 
 logger = logging.getLogger("titan.wallet-provisioner")
 

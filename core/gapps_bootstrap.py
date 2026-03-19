@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
+from exceptions import GAppsBootstrapError
+
 logger = logging.getLogger("titan.gapps-bootstrap")
 
 GAPPS_DIR = Path(os.environ.get("TITAN_GAPPS_DIR", "/opt/titan/data/gapps"))
