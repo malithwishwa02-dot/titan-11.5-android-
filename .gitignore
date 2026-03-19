@@ -12,3 +12,14 @@ forge_gallery/
 node_modules/
 ssl/
 desktop/dist/
+
+# Tooling caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.cover
+*.py,cover
+coverage.xml
+junit.xml

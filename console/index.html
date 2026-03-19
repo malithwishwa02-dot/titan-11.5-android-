@@ -37,14 +37,14 @@
 <body class="h-screen flex overflow-hidden" x-data="titanConsole()" x-init="init()">
 
 <!-- SIDEBAR -->
-<aside class="w-56 flex-shrink-0 bg-[#0d1117] border-r border-gray-800 flex flex-col h-full">
+<aside class="w-56 flex-shrink-0 bg-[#0d1117] border-r border-gray-800 flex flex-col h-full" role="navigation" aria-label="Main navigation">
   <div class="p-4 border-b border-gray-800">
     <div class="flex items-center gap-2">
       <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold text-sm">T</div>
       <div><div class="text-sm font-bold text-cyan-400">TITAN V11.3</div><div class="text-[10px] text-gray-500">Android Console</div></div>
     </div>
   </div>
-  <nav class="flex-1 overflow-y-auto scrollbar-thin py-2">
+  <nav class="flex-1 overflow-y-auto scrollbar-thin py-2" aria-label="Console sections">
     <template x-for="item in navItems" :key="item.key">
       <button class="sidebar-item w-full text-left px-4 py-2.5 flex items-center gap-3 text-sm"
         :class="section===item.key?'active text-cyan-400':'text-gray-400'" @click="section=item.key">
@@ -65,7 +65,7 @@
   <div class="flex items-center gap-2"><span class="text-gray-400 text-sm font-semibold" x-text="currentNav?.label||''"></span><span class="text-gray-600">&#8212;</span><span class="text-gray-500 text-xs" x-text="currentNav?.desc||''"></span></div>
   <span class="text-[11px] text-gray-500" x-text="new Date().toLocaleTimeString()"></span>
 </header>
-<div class="flex-1 overflow-y-auto scrollbar-thin p-4">
+<div class="flex-1 overflow-y-auto scrollbar-thin p-4" role="main" aria-live="polite">
 
 <!-- DASHBOARD -->
 <div x-show="section==='dashboard'" x-cloak>

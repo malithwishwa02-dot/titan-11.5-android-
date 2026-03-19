@@ -31,6 +31,12 @@ services:
       - CVD_HOME_BASE=${CVD_HOME_BASE:-/opt/titan/cuttlefish}
       - CVD_IMAGES_DIR=${CVD_IMAGES_DIR:-/opt/titan/cuttlefish/images}
       - PYTHONPATH=/opt/titan/server:/opt/titan/core:/opt/titan/v11-core
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     deploy:
       resources:
         limits:

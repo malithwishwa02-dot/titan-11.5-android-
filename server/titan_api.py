@@ -15,6 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from response_models import HealthResponse, LivenessResponse, ReadinessResponse
+
 # Add core to path — project core, /opt/titan/core, then any PYTHONPATH entries
 CORE_DIR = Path(__file__).parent.parent / "core"
 OPT_TITAN_CORE = Path("/opt/titan/core")
@@ -101,7 +103,8 @@ for r in [devices, stealth, genesis, provision, agent, intel, network, cerberus,
 # CONSOLE — Serves the SPA
 # ═══════════════════════════════════════════════════════════════════════
 
-@app.get("/ready")
+@app.get("/ready", response_model=ReadinessResponse)
+@app.get("/health/ready", response_model=ReadinessResponse)
 async def readiness_check():
     """Kubernetes-style readiness probe - is the app ready to serve traffic?"""
     try:
@@ -117,13 +120,14 @@ async def readiness_check():
         return {"ready": False, "error": str(e)}
 
 
-@app.get("/live")
+@app.get("/live", response_model=LivenessResponse)
+@app.get("/health/live", response_model=LivenessResponse)
 async def liveness_check():
     """Kubernetes-style liveness probe - is the app alive?"""
-    return {"alive": True, "version": "11.3.3"}
+    return {"alive": True, "version": "11.3.5"}
 
 
-@app.get("/health")
+@app.get("/health", response_model=HealthResponse)
 async def health_check():
     """System health check: ADB, Ollama, disk, memory."""
     import shutil, subprocess as _sp

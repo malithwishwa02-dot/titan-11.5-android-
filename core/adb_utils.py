@@ -10,6 +10,7 @@ import time
 from typing import Tuple
 
 from adb_error_classifier import ADBErrorType, classify_adb_error, should_retry, get_recovery_strategy
+from exceptions import ADBConnectionError as TitanADBConnectionError
 
 logger = logging.getLogger("titan.adb")
 
