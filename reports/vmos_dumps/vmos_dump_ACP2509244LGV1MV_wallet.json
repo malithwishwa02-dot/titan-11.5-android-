@@ -1,0 +1,3 @@
+{
+  "nfc_prefs": "<map><boolean name=\"nfc_payment_enabled\" value=\"true\"/><boolean name=\"contactless_payment_enabled\" value=\"true\"/></map>\n"
+}

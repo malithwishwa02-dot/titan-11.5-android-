@@ -371,28 +371,63 @@ class ProfileInjector:
 
     def _inject_play_purchases(self, profile: Dict[str, Any]):
         """Play Store purchases are injected via AppDataForger's library.db.
-        This method handles the app_usage injection via usagestats."""
+        This method handles the app_usage injection via usagestats.
+
+        GAP-M4: Android UsageStatsService reads XML files (not JSON) from
+        /data/system/usagestats/0/daily/. We also use `cmd usage-stats`
+        shell commands to inject usage events into the live service."""
         app_usage = profile.get("app_usage", [])
         if not app_usage:
             return
 
         try:
-            # Write usage stats as a JSON file that can be consumed by
-            # Android's UsageStatsService (simplified approach)
             import tempfile
-            usage_json = json.dumps(app_usage, indent=2, default=str)
 
-            with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w") as tmp:
-                tmp.write(usage_json)
+            # Method 1: Use `cmd usage-stats` to inject events directly
+            # This is the most reliable approach — the OS records them natively
+            for entry in app_usage[:30]:  # cap to avoid excessive ADB calls
+                pkg = entry.get("package", "")
+                if not pkg:
+                    continue
+                # MOVE_TO_FOREGROUND (1) then MOVE_TO_BACKGROUND (2)
+                _adb_shell(self.target,
+                           f"cmd usagestats report-event {pkg} 1 2>/dev/null")
+                _adb_shell(self.target,
+                           f"cmd usagestats report-event {pkg} 2 2>/dev/null")
+
+            # Method 2: Write Android-format UsageStats XML as supplemental data
+            # Android stores daily usage in XML with <usagestats> root element
+            xml_lines = ['<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>',
+                         '<usagestats version="1" >']
+            for entry in app_usage:
+                pkg = entry.get("package", "")
+                total_ms = entry.get("total_time_ms", 60000)
+                last_used = entry.get("last_used_epoch_ms", int(time.time() * 1000))
+                launch_count = entry.get("launch_count", 1)
+                xml_lines.append(
+                    f'  <package name="{pkg}" '
+                    f'totalTime="{total_ms}" '
+                    f'lastTimeUsed="{last_used}" '
+                    f'appLaunchCount="{launch_count}" />')
+            xml_lines.append('</usagestats>')
+            usage_xml = "\n".join(xml_lines)
+
+            with tempfile.NamedTemporaryFile(suffix=".xml", delete=False, mode="w") as tmp:
+                tmp.write(usage_xml)
                 tmp_path = tmp.name
 
             remote_dir = "/data/system/usagestats/0/daily"
             _adb_shell(self.target, f"mkdir -p {remote_dir}")
 
-            if _adb_push(self.target, tmp_path, f"{remote_dir}/titan_usage.json"):
-                _fix_file_ownership(self.target, f"{remote_dir}/titan_usage.json", self._browser_pkg)
+            # Use current epoch as filename (Android names files by timestamp)
+            epoch_file = str(int(time.time() * 1000))
+            remote_path = f"{remote_dir}/{epoch_file}"
+            if _adb_push(self.target, tmp_path, remote_path):
+                _adb_shell(self.target, f"chmod 660 {remote_path}")
+                _adb_shell(self.target, f"chown system:system {remote_path}")
                 self.result.app_usage_ok = True
-                logger.info(f"  App usage: {len(app_usage)} app records")
+                logger.info(f"  App usage: {len(app_usage)} app records "
+                            f"(cmd events + XML)")
 
             os.unlink(tmp_path)
 
@@ -454,18 +489,19 @@ class ProfileInjector:
     # ─── MAPS HISTORY ────────────────────────────────────────────
 
     def _inject_maps_history(self, profile: Dict[str, Any]):
-        """Inject Google Maps search/navigation history via Maps app SharedPrefs.
+        """Inject Google Maps search/navigation history via SQLite DB.
 
-        Google Maps persists recent searches in SharedPreferences XML and a
-        SQLite DB at /data/data/com.google.android.apps.maps/databases/.
-        Injecting this prevents the 'never used Maps' fraud signal.
+        GAP-M3: Maps stores data in gmm_storage.db and gmm_myplaces.db,
+        NOT in custom JSON files. We inject into the actual SQLite DBs
+        that Maps reads on launch so the data is visible to antifraud
+        querying Maps content providers.
         """
         maps_history = profile.get("maps_history", [])
         if not maps_history:
             return
 
         try:
-            import tempfile
+            import tempfile, sqlite3 as _sqlite3
             maps_pkg = "com.google.android.apps.maps"
 
             # Check Maps is installed
@@ -474,39 +510,70 @@ class ProfileInjector:
                 logger.debug("Maps not installed — skipping maps history injection")
                 return
 
-            # Build SharedPreferences XML with recent search history
-            # Maps stores recent searches under the key 'recent_queries'
             searches = [e for e in maps_history if e.get("type") == "search"]
             navigations = [e for e in maps_history if e.get("type") == "navigation"]
 
-            # Cap to last 50 to match Maps' own retention limit
             recent_searches = sorted(searches, key=lambda x: x["timestamp"], reverse=True)[:50]
             recent_navs = sorted(navigations, key=lambda x: x["timestamp"], reverse=True)[:30]
 
-            # Build a simple JSON blob that Maps reads for recent activity
-            import json as _json
-            history_blob = _json.dumps({
-                "searches": [{"q": e["query"], "ts": e["timestamp"]} for e in recent_searches],
-                "navigations": [{"dest": e["destination"], "ts": e["timestamp"],
-                                  "dur": e.get("duration_min", 15),
-                                  "km": e.get("distance_km", 5.0)} for e in recent_navs],
-            })
-
-            # Inject as SharedPrefs XML (Maps reads titan_history.json as supplemental)
-            maps_prefs_dir = f"/data/data/{maps_pkg}/shared_prefs"
-            _adb_shell(self.target, f"mkdir -p {maps_prefs_dir}")
-
-            with tempfile.NamedTemporaryFile(
-                suffix="_maps_history.json", delete=False, mode="w"
-            ) as tmp:
-                tmp.write(history_blob)
+            # Build gmm_storage.db with search history
+            with tempfile.NamedTemporaryFile(suffix="_gmm.db", delete=False) as tmp:
                 tmp_path = tmp.name
 
-            remote_path = f"{maps_prefs_dir}/titan_maps_history.json"
-            if _adb_push(self.target, tmp_path, remote_path):
-                _fix_file_ownership(self.target, remote_path, maps_pkg)
+            conn = _sqlite3.connect(tmp_path)
+            c = conn.cursor()
+
+            # Maps search history table (simplified but real schema)
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS search_history (
+                    _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    query TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    latitude REAL DEFAULT 0,
+                    longitude REAL DEFAULT 0,
+                    source TEXT DEFAULT 'typed'
+                )
+            """)
+
+            # Recent destinations / navigation history
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS recents (
+                    _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    address TEXT,
+                    latitude REAL DEFAULT 0,
+                    longitude REAL DEFAULT 0,
+                    timestamp INTEGER NOT NULL,
+                    type TEXT DEFAULT 'navigation'
+                )
+            """)
+
+            for s in recent_searches:
+                c.execute(
+                    "INSERT INTO search_history (query, timestamp, source) VALUES (?,?,?)",
+                    (s.get("query", ""), s.get("timestamp", 0), "typed")
+                )
+
+            for n in recent_navs:
+                c.execute(
+                    "INSERT INTO recents (name, address, latitude, longitude, timestamp, type) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (n.get("destination", ""), n.get("address", ""),
+                     n.get("lat", 0), n.get("lng", 0),
+                     n.get("timestamp", 0), "navigation")
+                )
+
+            conn.commit()
+            conn.close()
+
+            maps_db_dir = f"/data/data/{maps_pkg}/databases"
+            _adb_shell(self.target, f"mkdir -p {maps_db_dir}")
+
+            remote_db = f"{maps_db_dir}/gmm_storage.db"
+            if _adb_push(self.target, tmp_path, remote_db):
+                _fix_file_ownership(self.target, remote_db, maps_pkg)
                 logger.info(f"  Maps history: {len(recent_searches)} searches, "
-                            f"{len(recent_navs)} navigations injected")
+                            f"{len(recent_navs)} navigations → gmm_storage.db")
             os.unlink(tmp_path)
 
         except Exception as e:
@@ -941,27 +1008,66 @@ class ProfileInjector:
     # ─── CALL LOGS ────────────────────────────────────────────────────
 
     def _inject_call_logs(self, logs: List[Dict]):
-        """Inject call history via ContentProvider."""
+        """Inject call history via SQLite batch (replaces slow per-entry ADB commands)."""
         if not logs:
             return
 
-        # Cap to 50 entries to avoid ADB timeout (each is a separate command)
-        capped = logs[:50]
-        count = 0
-        for log_entry in capped:
-            number = log_entry.get("number", "")
-            call_type = log_entry.get("type", 1)  # 1=incoming, 2=outgoing, 3=missed
-            duration = log_entry.get("duration", 0)
-            date_ms = log_entry.get("date", int(time.time() * 1000) - random.randint(86400000, 2592000000))
+        REMOTE_DB = "/data/data/com.android.providers.contacts/databases/calllog.db"
+        capped = logs[:500]
 
-            _adb_shell(self.target,
-                f"content insert --uri content://call_log/calls "
-                f"--bind number:s:{number} --bind date:l:{date_ms} "
-                f"--bind duration:i:{duration} --bind type:i:{call_type}")
-            count += 1
+        try:
+            import tempfile
+            import sqlite3 as _sqlite3
 
-        self.result.call_logs_injected = count
-        logger.info(f"  Call logs: {count} injected")
+            with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+                tmp_path = tmp.name
+
+            # Pull existing DB if present
+            ok, _ = _adb(self.target, f"pull {REMOTE_DB} {tmp_path}", timeout=15)
+            if not ok:
+                conn = _sqlite3.connect(tmp_path)
+                conn.execute("""CREATE TABLE IF NOT EXISTS calls (
+                    _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    number TEXT, type INTEGER DEFAULT 1,
+                    date INTEGER, duration INTEGER DEFAULT 0,
+                    new INTEGER DEFAULT 0, name TEXT DEFAULT '',
+                    numbertype INTEGER DEFAULT 0,
+                    numberlabel TEXT DEFAULT '',
+                    countryiso TEXT DEFAULT 'US',
+                    geocoded_location TEXT DEFAULT '',
+                    phone_account_component_name TEXT DEFAULT '',
+                    phone_account_id TEXT DEFAULT '')""")
+                conn.commit()
+            else:
+                conn = _sqlite3.connect(tmp_path)
+
+            c = conn.cursor()
+            count = 0
+            for log_entry in capped:
+                number = log_entry.get("number", "")
+                call_type = log_entry.get("type", 1)
+                duration = log_entry.get("duration", 0)
+                date_ms = log_entry.get("date", int(time.time() * 1000) - random.randint(86400000, 2592000000))
+                c.execute(
+                    "INSERT INTO calls(number, type, date, duration, new) VALUES (?, ?, ?, ?, 0)",
+                    (number, call_type, date_ms, duration))
+                count += 1
+
+            conn.commit()
+            conn.close()
+
+            if _adb_push(self.target, tmp_path, REMOTE_DB):
+                _adb_shell(self.target,
+                    f"chown radio:radio {REMOTE_DB} 2>/dev/null; chmod 660 {REMOTE_DB}")
+
+            os.unlink(tmp_path)
+            self.result.call_logs_injected = count
+            logger.info(f"  Call logs: {count} injected (sqlite3 batch)")
+
+        except Exception as e:
+            self.result.errors.append(f"call_logs: {e}")
+            self.result.call_logs_injected = 0
+            logger.warning(f"  Call logs injection failed: {e}")
 
     # ─── SMS ──────────────────────────────────────────────────────────
 
@@ -976,7 +1082,7 @@ class ProfileInjector:
             return
 
         REMOTE_DB = "/data/data/com.android.providers.telephony/databases/mmssms.db"
-        capped = messages[:60]
+        capped = messages[:500]
 
         try:
             import tempfile
@@ -1159,7 +1265,7 @@ class ProfileInjector:
 
         # If no files existed, generate stub JPEGs with EXIF (8-12 photos)
         if count == 0:
-            num_photos = random.randint(8, 12)
+            num_photos = random.randint(50, 80)
             now = time.time()
             age_days = 90  # default; overridden by caller context
             for i in range(num_photos):

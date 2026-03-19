@@ -78,10 +78,25 @@ def _run_inject_job(job_id: str, adb_target: str, profile_data: dict,
     try:
         injector = ProfileInjector(adb_target=adb_target)
         result = injector.inject_full_profile(profile_data, card_data=card_data)
-        _inject_mgr.update(job_id, {
+
+        update = {
             "status": "completed", "trust_score": result.trust_score,
             "result": result.to_dict(), "completed_at": _time_mod.time(),
-        })
+        }
+
+        # Run wallet verification if card was injected (GAP-M1)
+        if card_data and result.wallet_ok:
+            try:
+                from wallet_verifier import WalletVerifier
+                wv = WalletVerifier(adb_target=adb_target)
+                wallet_report = wv.verify()
+                update["wallet_verification"] = wallet_report.to_dict()
+                logger.info(f"Inject job {job_id} wallet verify: "
+                            f"{wallet_report.passed}/{wallet_report.total} ({wallet_report.grade})")
+            except Exception as we:
+                logger.warning(f"Inject job {job_id} wallet verify failed: {we}")
+
+        _inject_mgr.update(job_id, update)
         logger.info(f"Inject job {job_id} completed: trust={result.trust_score}")
     except Exception as e:
         _inject_mgr.update(job_id, {"status": "failed", "error": str(e), "completed_at": _time_mod.time()})
@@ -281,7 +296,13 @@ class AgeDeviceBody(BaseModel):
 
 @router.post("/age-device/{device_id}")
 async def genesis_age_device(device_id: str, body: AgeDeviceBody):
-    """Run anomaly-patching phases on the device. Routes by device_type."""
+    """Run anomaly-patching phases on the device.
+
+    NOTE: This endpoint runs ONLY the stealth-patching stage (26 phases,
+    103+ detection vectors). For a full aging pipeline (forge + inject +
+    patch + warmup + verify), use the /training/workflow/start endpoint
+    or the full-provision endpoint instead.
+    """
     dev = dm.get_device(device_id) if dm else None
 
     try:

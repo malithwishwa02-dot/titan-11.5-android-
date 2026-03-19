@@ -260,34 +260,95 @@ class GAppsBootstrap:
         }
 
     def auto_download_apks(self) -> List[str]:
-        """Download missing essential APKs from APKPure CDN. Best-effort."""
+        """Download missing essential APKs. Best-effort with multiple sources."""
         import urllib.request
         self.gapps_dir.mkdir(parents=True, exist_ok=True)
         downloaded = []
+
+        # Also check alternate gapps directories
+        alt_dirs = [
+            Path("/opt/titan/data/gapps"),
+            Path("/opt/titan/gapps"),
+            Path("/opt/gapps"),
+        ]
+        for alt in alt_dirs:
+            if alt.exists() and alt != self.gapps_dir:
+                for apk in list(alt.glob("*.apk")) + list(alt.glob("*.xapk")):
+                    dest = self.gapps_dir / apk.name
+                    if not dest.exists() and apk.stat().st_size > 1_000_000:
+                        import shutil
+                        shutil.copy2(str(apk), str(dest))
+                        logger.info(f"  Copied {apk.name} from {alt} ({apk.stat().st_size // 1024}KB)")
+
+        # Purge broken downloads (HTML pages < 1MB masquerading as APKs)
+        for f in list(self.gapps_dir.glob("*.apk")) + list(self.gapps_dir.glob("*.xapk")):
+            if f.stat().st_size < 1_000_000:  # <1MB is not a real APK
+                logger.warning(f"  Removing invalid APK {f.name} ({f.stat().st_size} bytes)")
+                f.unlink()
+
         for entry in ESSENTIAL_APKS:
             if not entry["required"]:
                 continue
             if self._find_apk(entry):
                 continue
             pkg = entry["pkg"]
+
+            # Source 1: APKPure direct download
             for fmt, ext in [("XAPK", ".xapk"), ("APK", ".apk")]:
                 url = f"https://d.apkpure.net/b/{fmt}/{pkg}?version=latest"
                 dest = self.gapps_dir / f"{pkg}{ext}"
                 try:
                     logger.info(f"  Downloading {entry['name']} ({fmt}) from APKPure...")
                     req = urllib.request.Request(url, headers={
-                        "User-Agent": "Mozilla/5.0 (Linux; Android 15) Titan/11.3"
+                        "User-Agent": "Mozilla/5.0 (Linux; Android 14; SM-S921U) "
+                                       "AppleWebKit/537.36 Chrome/131.0.6778.81 Mobile Safari/537.36"
                     })
                     with urllib.request.urlopen(req, timeout=120) as resp:
                         data = resp.read()
-                        if len(data) > 50000:  # sanity: >50KB
+                        # Validate: real APKs are >1MB and start with PK or ZIP magic
+                        if len(data) > 1_000_000 and (data[:2] == b'PK' or data[:4] == b'\x50\x4b\x03\x04'):
                             dest.write_bytes(data)
                             downloaded.append(pkg)
                             logger.info(f"  Downloaded {dest.name} ({len(data) // 1024}KB)")
                             break
+                        else:
+                            logger.warning(f"  {pkg}: got {len(data)} bytes, not a valid APK (HTML redirect?)")
                 except Exception as e:
                     logger.warning(f"  Download failed for {pkg} ({fmt}): {e}")
         return downloaded
+
+    def restore_gapps(self) -> List[str]:
+        """Attempt to reinstall GApps that were previously uninstalled.
+        Tries: (1) reinstall from /system partition, (2) install from gapps_dir."""
+        restored = []
+
+        # Method 1: Try pm install-existing (restores uninstalled system apps)
+        for entry in ESSENTIAL_APKS:
+            pkg = entry["pkg"]
+            if self._is_installed(pkg):
+                continue
+            ok, out = self._adb_cmd(["shell", f"pm install-existing {pkg}"], timeout=30)
+            if ok and "installed" in out.lower():
+                logger.info(f"  Restored {entry['name']} via install-existing")
+                restored.append(pkg)
+                continue
+
+            # Method 2: Check /system, /product, /system_ext for APKs
+            sys_paths = self._shell(
+                f"find /system /product /system_ext -name '*.apk' -path '*{pkg}*' 2>/dev/null"
+            )
+            for sys_apk in sys_paths.split("\n"):
+                sys_apk = sys_apk.strip()
+                if sys_apk and sys_apk.endswith(".apk"):
+                    ok, out = self._adb_cmd(
+                        ["shell", f"pm install -r -d -g {sys_apk}"], timeout=60
+                    )
+                    if ok and "Success" in out:
+                        logger.info(f"  Restored {entry['name']} from {sys_apk}")
+                        restored.append(pkg)
+                        break
+
+        return restored
 
     def run(self, skip_optional: bool = False) -> BootstrapResult:
         """Run the full GApps bootstrap."""
@@ -298,6 +359,11 @@ class GAppsBootstrap:
 
         result.total_packages_before = len(self._get_installed_packages())
         logger.info(f"Packages before: {result.total_packages_before}")
+
+        # Phase 0: Try restoring previously-uninstalled GApps first (fastest path)
+        restored = self.restore_gapps()
+        if restored:
+            logger.info(f"Restored {len(restored)} packages via install-existing/system: {restored}")
 
         self.gapps_dir.mkdir(parents=True, exist_ok=True)
         available = list(self.gapps_dir.glob("*.apk"))

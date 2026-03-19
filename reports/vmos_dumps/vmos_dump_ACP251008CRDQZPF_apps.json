@@ -1,0 +1,72 @@
+[
+  {
+    "appState": 0,
+    "appName": "Google",
+    "packageName": "com.google.android.googlequicksearchbox",
+    "versionName": "17.9.53.ve.arm64",
+    "versionCode": "301708420"
+  },
+  {
+    "appState": 0,
+    "appName": "Wise",
+    "packageName": "com.transferwise.android",
+    "versionName": "8.84.2",
+    "versionCode": "1292"
+  },
+  {
+    "appState": 0,
+    "appName": "PayPal",
+    "packageName": "com.paypal.android.p2pmobile",
+    "versionName": "8.63.0",
+    "versionCode": "1150081603"
+  },
+  {
+    "appState": 0,
+    "appName": "Bybit",
+    "packageName": "com.bybit.app",
+    "versionName": "4.51.1",
+    "versionCode": "2024101600"
+  },
+  {
+    "appState": 0,
+    "appName": "Chime",
+    "packageName": "com.onedebit.chime",
+    "versionName": "5.149.0",
+    "versionCode": "84765"
+  },
+  {
+    "appState": 0,
+    "appName": "Gemini",
+    "packageName": "com.google.android.apps.bard",
+    "versionName": "1.0.869192867",
+    "versionCode": "287"
+  },
+  {
+    "appState": 0,
+    "appName": "Drive",
+    "packageName": "com.google.android.apps.docs",
+    "versionName": "2.24.307.2.all.alldpi",
+    "versionCode": "213684160"
+  },
+  {
+    "appState": 0,
+    "appName": "Google\u00a0Wallet",
+    "packageName": "com.google.android.apps.walletnfcrel",
+    "versionName": "26.9.875958994",
+    "versionCode": "933390105"
+  },
+  {
+    "appState": 0,
+    "appName": "Klarna",
+    "packageName": "com.myklarnamobile",
+    "versionName": "26.11.311",
+    "versionCode": "759130"
+  },
+  {
+    "appState": 0,
+    "appName": "Fanytel Business",
+    "packageName": "com.app.fanytelbusiness",
+    "versionName": "1.4.2",
+    "versionCode": "60"
+  }
+]

@@ -1,0 +1,364 @@
+{
+  "pad_code": "ACP2509244LGV1MV",
+  "dump_time": "2026-03-18T19:55:02.399617",
+  "properties": {
+    "padCode": "ACP2509244LGV1MV",
+    "modemPropertiesList": [
+      {
+        "propertiesName": "imei",
+        "propertiesValue": "517722837334413"
+      },
+      {
+        "propertiesName": "phonenum",
+        "propertiesValue": "12677542792"
+      },
+      {
+        "propertiesName": "SimOperatorName",
+        "propertiesValue": "Singtel"
+      },
+      {
+        "propertiesName": "simCountryIso",
+        "propertiesValue": "us"
+      },
+      {
+        "propertiesName": "ICCID",
+        "propertiesValue": ""
+      },
+      {
+        "propertiesName": "IMSI",
+        "propertiesValue": "310026909644419"
+      },
+      {
+        "propertiesName": "MCCMNC",
+        "propertiesValue": "310,026"
+      }
+    ],
+    "settingPropertiesList": [],
+    "systemPropertiesList": [
+      {
+        "propertiesName": "wifiMac",
+        "propertiesValue": "D2:76:C4:B4:A4:62"
+      },
+      {
+        "propertiesName": "ro.product.manufacturer",
+        "propertiesValue": "OnePlus"
+      },
+      {
+        "propertiesName": "ro.product.brand",
+        "propertiesValue": "OnePlus"
+      },
+      {
+        "propertiesName": "ro.product.model",
+        "propertiesValue": "PKX110"
+      },
+      {
+        "propertiesName": "ro.build.id",
+        "propertiesValue": "AP3A.240617.008"
+      },
+      {
+        "propertiesName": "ro.build.display.id",
+        "propertiesValue": "PKX110_15.0.2.401(CN01)"
+      },
+      {
+        "propertiesName": "ro.product.name",
+        "propertiesValue": "PKX110"
+      },
+      {
+        "propertiesName": "ro.product.device",
+        "propertiesValue": "OP60F5L1"
+      },
+      {
+        "propertiesName": "ro.product.board",
+        "propertiesValue": "sun"
+      },
+      {
+        "propertiesName": "ro.build.tags",
+        "propertiesValue": "release-keys"
+      },
+      {
+        "propertiesName": "ro.build.fingerprint",
+        "propertiesValue": "OnePlus/PKX110/OP60F5L1:15/AP3A.240617.008/V.1a42e08_42cb7b_428e83:user/release-keys"
+      },
+      {
+        "propertiesName": "ro.build.date.utc",
+        "propertiesValue": "1750864743"
+      },
+      {
+        "propertiesName": "ro.build.user",
+        "propertiesValue": "root"
+      },
+      {
+        "propertiesName": "ro.build.host",
+        "propertiesValue": "dg02-pool07-kvm45"
+      },
+      {
+        "propertiesName": "ro.build.description",
+        "propertiesValue": "qssi-user 15 AP3A.240617.008 1750864743050 release-keys"
+      },
+      {
+        "propertiesName": "ro.build.version.incremental",
+        "propertiesValue": "V.1a42e08_42cb7b_428e83"
+      },
+      {
+        "propertiesName": "ro.build.version.codename",
+        "propertiesValue": "REL"
+      },
+      {
+        "propertiesName": "ro.build.version.release",
+        "propertiesValue": "15"
+      },
+      {
+        "propertiesName": "bluetoothaddr",
+        "propertiesValue": "D6:DC:7D:EC:CC:E8"
+      },
+      {
+        "propertiesName": "gpuVendor",
+        "propertiesValue": "ARM"
+      },
+      {
+        "propertiesName": "gpuRenderer",
+        "propertiesValue": "Adreno (TM) 830"
+      },
+      {
+        "propertiesName": "gpuVersion",
+        "propertiesValue": "OpenGL ES 3.2 v1.g25p0-00eac0.15dce8f74bc43a2f253e71065913a6e8"
+      }
+    ],
+    "oaidPropertiesList": []
+  },
+  "details": {},
+  "build_props": {
+    "androidboot.verifiedbootstate": "green",
+    "apex.all.ready": "true",
+    "apexd.status": "ready",
+    "bluetooth.profile.a2dp.source.enabled": "true",
+    "bluetooth.profile.asha.central.enabled": "true",
+    "bluetooth.profile.avrcp.target.enabled": "true",
+    "bluetooth.profile.bas.client.enabled": "true",
+    "bluetooth.profile.gatt.enabled": "true",
+    "bluetooth.profile.hfp.ag.enabled": "true",
+    "bluetooth.profile.hid.device.enabled": "true",
+    "bluetooth.profile.hid.host.enabled": "true",
+    "bluetooth.profile.map.server.enabled": "true",
+    "bluetooth.profile.opp.enabled": "true",
+    "bluetooth.profile.pan.nap.enabled": "true",
+    "bluetooth.profile.pan.panu.enabled": "true",
+    "bluetooth.profile.pbap.server.enabled": "true",
+    "bluetooth.profile.sap.server.enabled": "true",
+    "bootreceiver.enable": "1",
+    "bpf.progs_loaded": "1",
+    "build.version.extensions.ad_services": "15",
+    "build.version.extensions.r": "15",
+    "build.version.extensions.s": "15",
+    "build.version.extensions.t": "15",
+    "build.version.extensions.u": "15",
+    "build.version.extensions.v": "15",
+    "cache_key.bluetooth.bluetooth_adapter_get_connection_state": "-2118691473513015030",
+    "cache_key.bluetooth.bluetooth_adapter_get_profile_connection_state": "-2118691473513015032",
+    "cache_key.bluetooth.bluetooth_adapter_get_state": "-2118691473513015025",
+    "cache_key.bluetooth.bluetooth_adapter_is_offloaded_filtering_supported": "-2118691473513015031",
+    "cache_key.bluetooth.bluetooth_device_get_bond_state": "-2118691473513015029",
+    "cache_key.bluetooth.bluetooth_map_get_connection_state": "-2118691473513015028",
+    "cache_key.bluetooth.bluetooth_sap_get_connection_state": "-2118691473513015027",
+    "cache_key.system_server.accounts_data": "2540373792705209440",
+    "cache_key.system_server.connectionless_stylus_handwriting": "2540373792705209449",
+    "cache_key.system_server.device_policy_manager_caches": "2540373792705209506",
+    "cache_key.system_server.display_info": "2540373792705209527",
+    "cache_key.system_server.get_credential_type": "2540373792705209407"
+  },
+  "apps": [
+    {
+      "appState": 0,
+      "appName": "Wise",
+      "packageName": "com.transferwise.android",
+      "versionName": "8.84.2",
+      "versionCode": "1292"
+    },
+    {
+      "appState": 0,
+      "appName": "PayPal",
+      "packageName": "com.paypal.android.p2pmobile",
+      "versionName": "8.63.0",
+      "versionCode": "1150081603"
+    },
+    {
+      "appState": 0,
+      "appName": "Bybit",
+      "packageName": "com.bybit.app",
+      "versionName": "4.51.1",
+      "versionCode": "2024101600"
+    },
+    {
+      "appState": 0,
+      "appName": "Chime",
+      "packageName": "com.onedebit.chime",
+      "versionName": "5.149.0",
+      "versionCode": "84765"
+    },
+    {
+      "appState": 0,
+      "appName": "Drive",
+      "packageName": "com.google.android.apps.docs",
+      "versionName": "2.24.307.2.all.alldpi",
+      "versionCode": "213684160"
+    },
+    {
+      "appState": 0,
+      "appName": "Kitsune Mask",
+      "packageName": "io.github.huskydg.magisk",
+      "versionName": "6c6b2354",
+      "versionCode": "29999"
+    }
+  ],
+  "screenshot": "https://edge-hk-04.armcloud.net/api/agent/pad/screenshot?cbsIp=172.21.40.27&padCode=ACP2509244LGV1MV&format=png&width=1080&height=2344&quality=60&expireAt=1773865509&sign=EgVVAHv9OTdF4Ozkmk7UhZLVZX7DtEDfm7y_wylsU60=",
+  "contacts": [],
+  "call_logs": [
+    "Row: 0 number=+12137357997, type=2, duration=235, date=1773459538113",
+    "Row: 1 number=+12137357997, type=1, duration=12, date=1773431165113",
+    "Row: 2 number=+13120782776, type=3, duration=0, date=1773378943113",
+    "Row: 3 number=+12137357997, type=1, duration=8, date=1773355787113",
+    "Row: 4 number=+12137357997, type=2, duration=27, date=1773347000113",
+    "Row: 5 number=+12062505779, type=1, duration=131, date=1773338620113",
+    "Row: 6 number=+14249011420, type=1, duration=873, date=1773292468113",
+    "Row: 7 number=+14249011420, type=3, duration=0, date=1773268519113",
+    "Row: 8 number=+14152171464, type=3, duration=0, date=1773204151113",
+    "Row: 9 number=+14249010385, type=2, duration=30, date=1773169119113",
+    "Row: 10 number=+12137357997, type=1, duration=16, date=1773167661113",
+    "Row: 11 number=+12029399178, type=2, duration=6, date=1773141771113",
+    "Row: 12 number=+15036361256, type=2, duration=113, date=1773119982113",
+    "Row: 13 number=+12029399178, type=2, duration=86, date=1773118428113",
+    "Row: 14 number=+12029399178, type=1, duration=14, date=1773107778113",
+    "Row: 15 number=+13120782776, type=3, duration=0, date=1773090862113",
+    "Row: 16 number=+12137357997, type=2, duration=73, date=1773040728113",
+    "Row: 17 number=+12029399178, type=1, duration=800, date=1773009616113",
+    "Row: 18 number=+15036361256, type=1, duration=20, date=1772993427113",
+    "Row: 19 number=+12029399178, type=3, duration=0, date=1772944990113",
+    "Row: 20 number=+13120782776, type=2, duration=32, date=1772943060113",
+    "Row: 21 number=+15036361256, type=2, duration=5, date=1772930751113",
+    "Row: 22 number=+14152171464, type=3, duration=0, date=1772926552113",
+    "Row: 23 number=+13120782776, type=2, duration=59, date=1772923739113",
+    "Row: 24 number=+12029399178, type=1, duration=17, date=1772861026113",
+    "Row: 25 number=+13120782776, type=2, duration=10, date=1772793986113",
+    "Row: 26 number=+12029399178, type=2, duration=81, date=1772645392113",
+    "Row: 27 number=+12029399467, type=1, duration=8, date=1772602355113",
+    "Row: 28 number=+13120782776, type=3, duration=0, date="
+  ],
+  "sms": [
+    "Row: 0 address=+12123319986, body=Your DoorDash order is on the way!, date=1773451455708, type=1",
+    "Row: 1 address=+12123319986, body=Driver is arriving in 5 minutes, date=1773451451285, type=1",
+    "Row: 2 address=+12025776048, body=Hey, you free tonight?, date=1773451447038, type=1",
+    "Row: 3 address=+12025776048, body=Yeah whats up?, date=1773451442825, type=1",
+    "Row: 4 address=+12025776048, body=Want to grab dinner? That new place on Main St, date=1773451438543, type=1",
+    "Row: 5 address=+12025776048, body=Sure, 7pm?, date=1773451434336, type=1",
+    "Row: 6 address=+12025776048, body=Perfect see you there, date=1773451430008, type=1",
+    "Row: 7 address=+16171741532, body=Thank you, Ill be there, date=1773451421418, type=1",
+    "Row: 8 address=+12065160386, body=Hey, you free tonight?, date=1773451417169, type=1",
+    "Row: 9 address=+12065160386, body=Want to grab dinner? That new place on Main St, date=1773451412963, type=1",
+    "Row: 10 address=+12065160386, body=Sure, 7pm?, date=1773451408746, type=1",
+    "Row: 11 address=+12065160386, body=Yeah whats up?, date=1773451404456, type=1",
+    "Row: 12 address=+12065160386, body=Perfect see you there, date=1773451400264, type=1",
+    "Row: 13 address=+13107772603, body=Your DoorDash order is on the way!, date=1773451395990, type=1",
+    "Row: 14 address=+13107772603, body=Driver is arriving in 5 minutes, date=1773451391788, type=1",
+    "Row: 15 address=+12065160386, body=Hi sweetie, are you coming for dinner Sunday?, date=1773451387414, type=1",
+    "Row: 16 address=+12065160386, body=Around 2pm. Dad is grilling, date=1773451383210, type=1",
+    "Row: 17 address=+12065160386, body=Yes! What time should I be there?, date=1773451378720, type=1",
+    "Row: 18 address=+12065160386, body=Love you \u2764\ufe0f, date=1773451374495, type=1",
+    "Row: 19 address=+12065160386, body=Sounds great, Ill bring dessert, date=1773451370042, type=1",
+    "Row: 20 address=72000, body=Your verification code is 847291. Dont share it with anyone., date=1773451361523, type=1",
+    "Row: 21 address=PAYPAL, body=Your code is 529163. Expire"
+  ],
+  "chrome": {
+    "files": [
+      "Account Web Data",
+      "Account Web Data-journal",
+      "Affiliation Database",
+      "Affiliation Database-journal",
+      "AutofillStrikeDatabase",
+      "BrowsingTopicsSiteData",
+      "BrowsingTopicsSiteData-journal",
+      "BrowsingTopicsState",
+      "BudgetDatabase",
+      "Cookies",
+      "Cookies-journal",
+      "DIPS",
+      "DIPS-journal",
+      "DawnGraphiteCache",
+      "DawnWebGPUCache",
+      "Download Service",
+      "Favicons",
+      "Favicons-journal",
+      "Feature Engagement Tracker",
+      "GCM Store",
+      "GPUCache",
+      "History",
+      "History-journal",
+      "LOCK",
+      "LOG",
+      "LOG.old",
+      "Local Storage",
+      "Network Action Predictor",
+      "Network Action Predictor-journal",
+      "Network Persistent State",
+      "Offline Pages",
+      "PersistentOriginTrials",
+      "Preferences",
+      "README",
+      "Reporting and NEL",
+      "Reporting and NEL-journal",
+      "SCT Auditing Pending Reports",
+      "Safe Browsing Cookies",
+      "Safe Browsing Cookies-journal",
+      "Segmentation Platform",
+      "Session Storage",
+      "Shared Dictionary",
+      "SharedStorage",
+      "SharedStorage-wal",
+      "Shortcuts",
+      "Shortcuts-journal",
+      "Sync Data",
+      "Top Sites",
+      "Top Sites-journal",
+      "TransportSecurity",
+      "Trust Tokens",
+      "Trust Tokens-journal",
+      "UsageStats",
+      "Visited Links",
+      "Web Data",
+      "Web Data-journal",
+      "WebStorage",
+      "blob_storage",
+      "commerce_subscription_db",
+      "databases",
+      "feedv2",
+      "heavy_ad_intervention_opt_out.db",
+      "heavy_ad_intervention_opt_out.db-journal",
+      "optimization_guide_hint_cache_store",
+      "paint_preview",
+      "parcel_tracking_db",
+      "persisted_state_db",
+      "share_history",
+      "shared_proto_db"
+    ],
+    "cookies_exists": true
+  },
+  "accounts": [],
+  "wallet": {
+    "nfc_prefs": "<map><boolean name=\"nfc_payment_enabled\" value=\"true\"/><boolean name=\"contactless_payment_enabled\" value=\"true\"/></map>\n"
+  },
+  "wifi": {
+    "raw": "<?xml version=\"1.0\" encoding=\"utf-8\"?><WifiConfigStoreData><NetworkList><Network><WifiConfiguration><string name=\"SSID\">&quot;ATT-5G-Home&quot;</string><boolean name=\"SelfAdded\" value=\"false\"/><boolean name=\"SharedWithUser\" value=\"true\"/></WifiConfiguration></Network></NetworkList></WifiConfigStoreData>\n"
+  },
+  "gallery": [
+    "total 0",
+    "-rw-rw---- 1 u0_a93 media_rw 22 2026-03-13 18:22 IMG_20250310_1.jpg",
+    "-rw-rw---- 1 u0_a93 media_rw 22 2026-03-13 18:22 IMG_20250310_2.jpg",
+    "-rw-rw---- 1 u0_a93 media_rw 22 2026-03-13 18:22 IMG_20250310_3.jpg",
+    "-rw-rw---- 1 u0_a93 media_rw 22 2026-03-13 18:22 IMG_20250310_4.jpg",
+    "-rw-rw---- 1 u0_a93 media_rw 22 2026-03-13 18:22 IMG_20250310_5.jpg",
+    "-rw-rw---- 1 u0_a93 media_rw 22 2026-03-13 18:22 IMG_20250310_6.jpg",
+    "-rw-rw---- 1 u0_a93 media_rw 22 2026-03-13 18:22 IMG_20250310_7.jpg",
+    "-rw-rw---- 1 u0_a93 media_rw 22 2026-03-13 18:22 IMG_20250310_8.jpg",
+    "total 3",
+    "drwxrws--- 2 u0_a93 media_rw 3488 2026-03-13 15:37 .thumbnails"
+  ]
+}

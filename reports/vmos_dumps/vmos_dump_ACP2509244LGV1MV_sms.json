@@ -1,0 +1,28 @@
+{
+  "raw": "Row: 0 address=+12123319986, body=Your DoorDash order is on the way!, date=1773451455708, type=1\nRow: 1 address=+12123319986, body=Driver is arriving in 5 minutes, date=1773451451285, type=1\nRow: 2 address=+12025776048, body=Hey, you free tonight?, date=1773451447038, type=1\nRow: 3 address=+12025776048, body=Yeah whats up?, date=1773451442825, type=1\nRow: 4 address=+12025776048, body=Want to grab dinner? That new place on Main St, date=1773451438543, type=1\nRow: 5 address=+12025776048, body=Sure, 7pm?, date=1773451434336, type=1\nRow: 6 address=+12025776048, body=Perfect see you there, date=1773451430008, type=1\nRow: 7 address=+16171741532, body=Thank you, Ill be there, date=1773451421418, type=1\nRow: 8 address=+12065160386, body=Hey, you free tonight?, date=1773451417169, type=1\nRow: 9 address=+12065160386, body=Want to grab dinner? That new place on Main St, date=1773451412963, type=1\nRow: 10 address=+12065160386, body=Sure, 7pm?, date=1773451408746, type=1\nRow: 11 address=+12065160386, body=Yeah whats up?, date=1773451404456, type=1\nRow: 12 address=+12065160386, body=Perfect see you there, date=1773451400264, type=1\nRow: 13 address=+13107772603, body=Your DoorDash order is on the way!, date=1773451395990, type=1\nRow: 14 address=+13107772603, body=Driver is arriving in 5 minutes, date=1773451391788, type=1\nRow: 15 address=+12065160386, body=Hi sweetie, are you coming for dinner Sunday?, date=1773451387414, type=1\nRow: 16 address=+12065160386, body=Around 2pm. Dad is grilling, date=1773451383210, type=1\nRow: 17 address=+12065160386, body=Yes! What time should I be there?, date=1773451378720, type=1\nRow: 18 address=+12065160386, body=Love you \u2764\ufe0f, date=1773451374495, type=1\nRow: 19 address=+12065160386, body=Sounds great, Ill bring dessert, date=1773451370042, type=1\nRow: 20 address=72000, body=Your verification code is 847291. Dont share it with anyone., date=1773451361523, type=1\nRow: 21 address=PAYPAL, body=Your code is 529163. Expire\n... [truncated, total 11.8 KB]",
+  "count": 22,
+  "parsed": [
+    "Row: 0 address=+12123319986, body=Your DoorDash order is on the way!, date=1773451455708, type=1",
+    "Row: 1 address=+12123319986, body=Driver is arriving in 5 minutes, date=1773451451285, type=1",
+    "Row: 2 address=+12025776048, body=Hey, you free tonight?, date=1773451447038, type=1",
+    "Row: 3 address=+12025776048, body=Yeah whats up?, date=1773451442825, type=1",
+    "Row: 4 address=+12025776048, body=Want to grab dinner? That new place on Main St, date=1773451438543, type=1",
+    "Row: 5 address=+12025776048, body=Sure, 7pm?, date=1773451434336, type=1",
+    "Row: 6 address=+12025776048, body=Perfect see you there, date=1773451430008, type=1",
+    "Row: 7 address=+16171741532, body=Thank you, Ill be there, date=1773451421418, type=1",
+    "Row: 8 address=+12065160386, body=Hey, you free tonight?, date=1773451417169, type=1",
+    "Row: 9 address=+12065160386, body=Want to grab dinner? That new place on Main St, date=1773451412963, type=1",
+    "Row: 10 address=+12065160386, body=Sure, 7pm?, date=1773451408746, type=1",
+    "Row: 11 address=+12065160386, body=Yeah whats up?, date=1773451404456, type=1",
+    "Row: 12 address=+12065160386, body=Perfect see you there, date=1773451400264, type=1",
+    "Row: 13 address=+13107772603, body=Your DoorDash order is on the way!, date=1773451395990, type=1",
+    "Row: 14 address=+13107772603, body=Driver is arriving in 5 minutes, date=1773451391788, type=1",
+    "Row: 15 address=+12065160386, body=Hi sweetie, are you coming for dinner Sunday?, date=1773451387414, type=1",
+    "Row: 16 address=+12065160386, body=Around 2pm. Dad is grilling, date=1773451383210, type=1",
+    "Row: 17 address=+12065160386, body=Yes! What time should I be there?, date=1773451378720, type=1",
+    "Row: 18 address=+12065160386, body=Love you \u2764\ufe0f, date=1773451374495, type=1",
+    "Row: 19 address=+12065160386, body=Sounds great, Ill bring dessert, date=1773451370042, type=1",
+    "Row: 20 address=72000, body=Your verification code is 847291. Dont share it with anyone., date=1773451361523, type=1",
+    "Row: 21 address=PAYPAL, body=Your code is 529163. Expire"
+  ]
+}

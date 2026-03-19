@@ -290,6 +290,24 @@ class WalletProvisioner:
         if not gpay_installed:
             logger.warning("Google Pay not installed — wallet data may be orphaned. Run bootstrap-gapps first.")
 
+        # 4b. Real Google account signed in (CRITICAL for card visibility)
+        # Without a real authenticated Google account, Google Pay shows "Add a card"
+        # even if tapandpay.db has card data — the app requires valid OAuth session.
+        acct_out = _adb_shell(self.target,
+            "dumpsys account 2>/dev/null | grep -c 'Account.*com.google' 2>/dev/null")
+        has_google_account = acct_out.strip().isdigit() and int(acct_out.strip()) > 0
+        if not has_google_account:
+            logger.warning(
+                "NO real Google account on device — injected cards will NOT appear "
+                "in Google Pay UI. Create a real Google account first via "
+                "GoogleAccountCreator, then re-run wallet provisioning."
+            )
+            result = WalletProvisionResult(card_last4=last4, card_network="unknown")
+            result.errors.append(
+                "FEASIBILITY: No Google account signed in — cards invisible without OAuth session. "
+                "Run GoogleAccountCreator.create_account() first.")
+            return result
+
         # 5. Keybox loaded (required for NFC tap-and-pay to actually work)
         keybox_loaded = _adb_shell(self.target, "getprop persist.titan.keybox.loaded").strip() == "1"
         if not keybox_loaded:
@@ -442,16 +460,6 @@ class WalletProvisioner:
                     provisioning_status TEXT DEFAULT 'PROVISIONED',
                     token_type TEXT DEFAULT 'CLOUD',
                     last_updated_timestamp INTEGER,
-                    FOREIGN KEY (token_id) REFERENCES tokens(id)
-                )
-            """)
-
-            # Session keys stub for LUK/ATC references
-            c.execute("""
-                CREATE TABLE IF NOT EXISTS session_keys (
-                    token_id INTEGER PRIMARY KEY,
-                    luk TEXT,
-                    atc_counter INTEGER DEFAULT 0,
                     FOREIGN KEY (token_id) REFERENCES tokens(id)
                 )
             """)

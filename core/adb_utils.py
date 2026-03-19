@@ -46,9 +46,11 @@ def adb_shell(target: str, cmd: str, timeout: int = 15) -> str:
     return out if ok else ""
 
 
-def adb_push(target: str, local: str, remote: str, timeout: int = 30) -> bool:
-    """Push a local file to the device. Returns True on success."""
-    ok, _ = adb(target, f"push {local} '{remote}'", timeout=timeout)
+def adb_push(target: str, local: str, remote: str, timeout: int = 30,
+             max_retries: int = 2) -> bool:
+    """Push a local file to the device with retry on transient failures."""
+    ok, out, _ = adb_with_retry(target, f"push {local} '{remote}'",
+                                timeout=timeout, max_retries=max_retries)
     return ok
 
 

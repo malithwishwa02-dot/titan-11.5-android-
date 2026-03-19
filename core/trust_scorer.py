@@ -12,6 +12,21 @@ from adb_utils import adb_shell
 logger = logging.getLogger("titan.trust-scorer")
 
 
+def _resolve_browser_data_path(adb_target: str) -> str:
+    """Detect installed Chromium browser and return its Default data path.
+    Chrome can't install on vanilla AOSP Cuttlefish (needs TrichromeLibrary),
+    so Kiwi Browser is used as a drop-in replacement."""
+    candidates = [
+        ("com.android.chrome", "/data/data/com.android.chrome/app_chrome/Default"),
+        ("com.kiwibrowser.browser", "/data/data/com.kiwibrowser.browser/app_chrome/Default"),
+    ]
+    for pkg, data_path in candidates:
+        out = adb_shell(adb_target, f"pm path {pkg} 2>/dev/null")
+        if out and out.strip():
+            return data_path
+    return candidates[0][1]  # fallback to Chrome path
+
+
 def _safe_int(raw: str) -> int:
     """Parse ADB output to int, returning 0 on failure."""
     s = (raw or "").strip()
@@ -41,14 +56,17 @@ def compute_trust_score(adb_target: str) -> Dict[str, Any]:
     if contacts_n >= 5:
         score += 8
 
-    # 3. Chrome cookies exist (weight: 8)
-    has_cookies = bool(adb_shell(t, "ls /data/data/com.android.chrome/app_chrome/Default/Cookies 2>/dev/null"))
-    checks["chrome_cookies"] = {"present": has_cookies, "weight": 8}
+    # Resolve browser (Chrome or Kiwi) once for all browser checks
+    browser_data = _resolve_browser_data_path(t)
+
+    # 3. Browser cookies exist (weight: 8)
+    has_cookies = bool(adb_shell(t, f"ls {browser_data}/Cookies 2>/dev/null"))
+    checks["chrome_cookies"] = {"present": has_cookies, "weight": 8, "browser_path": browser_data}
     if has_cookies:
         score += 8
 
-    # 4. Chrome history exists (weight: 8)
-    has_history = bool(adb_shell(t, "ls /data/data/com.android.chrome/app_chrome/Default/History 2>/dev/null"))
+    # 4. Browser history exists (weight: 8)
+    has_history = bool(adb_shell(t, f"ls {browser_data}/History 2>/dev/null"))
     checks["chrome_history"] = {"present": has_history, "weight": 8}
     if has_history:
         score += 8
@@ -116,14 +134,14 @@ def compute_trust_score(adb_target: str) -> Dict[str, Any]:
     if has_app_prefs:
         score += 8
 
-    # 12. Chrome signed in (weight: 5)
-    has_chrome_prefs = bool(adb_shell(t, "ls /data/data/com.android.chrome/app_chrome/Default/Preferences 2>/dev/null"))
+    # 12. Browser signed in (weight: 5)
+    has_chrome_prefs = bool(adb_shell(t, f"ls {browser_data}/Preferences 2>/dev/null"))
     checks["chrome_signin"] = {"present": has_chrome_prefs, "weight": 5}
     if has_chrome_prefs:
         score += 5
 
     # 13. Autofill data (weight: 5)
-    has_autofill = bool(adb_shell(t, "ls '/data/data/com.android.chrome/app_chrome/Default/Web Data' 2>/dev/null"))
+    has_autofill = bool(adb_shell(t, f"ls '{browser_data}/Web Data' 2>/dev/null"))
     checks["autofill"] = {"present": has_autofill, "weight": 5}
     if has_autofill:
         score += 5

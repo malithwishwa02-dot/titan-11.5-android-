@@ -143,10 +143,14 @@ class WorkflowEngine:
         #   6. warmup           — natural usage after all data is in place
         #   7. verify           — audit + trust + wallet checks
         job.stages.append(WorkflowStage(name="bootstrap_gapps", method="inject"))
+        if persona.get("proxy_url"):
+            job.stages.append(WorkflowStage(name="configure_proxy", method="inject"))
         if not skip_forge and not profile_id:
             job.stages.append(WorkflowStage(name="forge_profile", method="forge"))
         job.stages.append(WorkflowStage(name="install_apps", method="agent"))
         job.stages.append(WorkflowStage(name="inject_profile", method="inject"))
+        if persona.get("phone"):
+            job.stages.append(WorkflowStage(name="create_google_account", method="agent"))
         job.stages.append(WorkflowStage(name="setup_wallet", method="inject"))
         if not skip_patch:
             job.stages.append(WorkflowStage(name="patch_device", method="patch"))
@@ -213,7 +217,11 @@ class WorkflowEngine:
                 logger.error(f"Workflow {job_id} aborted: ADB unreachable")
                 return
 
-            asyncio.run(self._run_stages(job, persona, bundles, card_data, country, aging))
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(self._run_stages(job, persona, bundles, card_data, country, aging))
+            finally:
+                loop.close()
 
             job.status = "completed"
         except Exception as e:
@@ -231,8 +239,10 @@ class WorkflowEngine:
         """Execute all workflow stages in order."""
         stage_map = {
             "bootstrap_gapps": lambda: self._stage_bootstrap_gapps(job),
+            "configure_proxy": lambda: self._stage_configure_proxy(job, persona),
             "forge_profile": lambda: self._stage_forge(job, persona, country, aging),
             "inject_profile": lambda: self._stage_inject(job, persona, card_data),
+            "create_google_account": lambda: self._stage_create_google_account(job, persona),
             "patch_device": lambda: self._stage_patch(job, country),
             "install_apps": lambda: self._stage_install_apps(job, bundles),
             "setup_wallet": lambda: self._stage_wallet(job, card_data),
@@ -313,6 +323,70 @@ class WorkflowEngine:
         logger.info(f"GApps bootstrap: {len(result.installed)} installed, "
                      f"{len(result.already_installed)} already present")
 
+    async def _stage_configure_proxy(self, job: WorkflowJob, persona: Dict):
+        """Stage: Configure SOCKS5 proxy routing on device."""
+        proxy_url = persona.get("proxy_url", "")
+        if not proxy_url:
+            logger.info("No proxy URL — skipping proxy configuration")
+            return
+
+        dev = self.dm.get_device(job.device_id) if self.dm else None
+        target = dev.adb_target if dev else "127.0.0.1:6520"
+
+        from proxy_router import ProxyRouter
+        router = ProxyRouter(adb_target=target)
+        result = router.configure_socks5(proxy_url)
+
+        if result.success:
+            logger.info(f"Proxy configured via {result.method}, external IP: {result.external_ip}")
+            job.config["proxy_method"] = result.method
+            job.config["proxy_external_ip"] = result.external_ip
+        else:
+            errors = "; ".join(result.errors[:3])
+            logger.warning(f"Proxy configuration failed: {errors}")
+            # Non-fatal — continue without proxy
+
+    async def _stage_create_google_account(self, job: WorkflowJob, persona: Dict):
+        """Stage: Create a real Google account on device for OAuth session.
+        
+        This must run AFTER GApps bootstrap (GMS required) and BEFORE wallet 
+        provisioning (Google Pay needs real account to display cards).
+        """
+        dev = self.dm.get_device(job.device_id) if self.dm else None
+        target = dev.adb_target if dev else "127.0.0.1:6520"
+        phone = persona.get("phone", "")
+
+        if not phone:
+            logger.warning("No phone number for Google account creation — skipping")
+            return
+
+        from google_account_creator import GoogleAccountCreator
+        creator = GoogleAccountCreator(adb_target=target)
+
+        # Use manual OTP flow since phone is external
+        result = creator.create_account(
+            persona=persona,
+            phone_number=phone,
+            otp_callback=persona.get("otp_callback"),
+        )
+
+        if result.success:
+            job.config["google_email"] = result.email
+            job.config["google_password"] = result.password
+            logger.info(f"Google account created: {result.email}")
+        elif result.otp_required and not result.otp_received:
+            # OTP needed but not received — store partial state for manual continuation
+            job.config["google_email"] = result.email
+            job.config["google_password"] = result.password
+            job.config["otp_pending"] = True
+            logger.warning(
+                f"Google account creation paused — OTP sent to {phone}. "
+                f"Call continue_with_otp() with the 6-digit code."
+            )
+        else:
+            errors = "; ".join(result.errors[:3])
+            logger.warning(f"Google account creation failed: {errors}")
+
     async def _stage_forge(self, job: WorkflowJob, persona: Dict,
                            country: str, aging: Dict):
         """Stage: Forge Genesis profile (direct call, no HTTP back-loop)."""
@@ -326,6 +400,27 @@ class WorkflowEngine:
             country=country,
             age_days=aging["age_days"],
         )
+
+        # Embed card metadata in profile so downstream stages
+        # (purchase_history_bridge, payment_history_forge) can reference
+        # the actual card being provisioned (GAP-H3)
+        card_data = job.config.get("card_data", {})
+        card_number = card_data.get("number", "")
+        if card_number and len(card_number) >= 4:
+            profile["card_last4"] = card_number[-4:]
+            # Detect card network from BIN
+            first = card_number[0] if card_number else ""
+            if first == "4":
+                profile["card_network"] = "visa"
+            elif first in ("5", "2"):
+                profile["card_network"] = "mastercard"
+            elif first == "3":
+                profile["card_network"] = "amex"
+            elif first == "6":
+                profile["card_network"] = "discover"
+            else:
+                profile["card_network"] = "visa"
+            profile["card_cardholder"] = card_data.get("cardholder", persona.get("name", ""))
 
         # Persist profile to disk (same path as genesis router)
         profiles_dir = Path(os.environ.get("TITAN_DATA", "/opt/titan/data")) / "profiles"
@@ -359,7 +454,7 @@ class WorkflowEngine:
         # Direct inject via ProfileInjector (no HTTP round-trip)
         from profile_injector import ProfileInjector
         injector = ProfileInjector(adb_target=dev.adb_target)
-        result = injector.inject_full_profile(profile_data)
+        result = injector.inject_full_profile(profile_data, card_data=card_data if card_data else None)
         logger.info(f"Profile inject: {result.injected}/{result.total} items "
                      f"({result.success_rate:.0%})")
 
@@ -403,8 +498,79 @@ class WorkflowEngine:
         dev.state = "patched"
         logger.info(f"Patch complete: score={report.score}")
 
+    def _check_agent_available(self, adb_target: str) -> bool:
+        """Pre-flight check: verify AI agent (Ollama) is reachable."""
+        try:
+            from device_agent import DeviceAgent
+            agent = DeviceAgent(adb_target=adb_target)
+            # Quick connectivity test — if Ollama is down, this will fail
+            import urllib.request
+            url = agent.ollama_url if hasattr(agent, 'ollama_url') else "http://127.0.0.1:11434"
+            req = urllib.request.Request(f"{url}/api/tags", method="GET")
+            resp = urllib.request.urlopen(req, timeout=5)
+            return resp.status == 200
+        except Exception:
+            return False
+
+    def _adb_sideload_apps(self, adb_target: str, bundles: List[str]) -> int:
+        """Fallback: install apps via ADB sideload from local APK cache."""
+        import subprocess
+        from app_bundles import APP_BUNDLES
+
+        apk_dirs = [
+            Path(os.environ.get("TITAN_DATA", "/opt/titan/data")) / "apks",
+            Path("/opt/titan/data/apks"),
+        ]
+
+        installed = 0
+        for bkey in bundles:
+            bundle = APP_BUNDLES.get(bkey, {})
+            for app in bundle.get("apps", []):
+                pkg = app.get("pkg", "")
+                if not pkg:
+                    continue
+
+                # Check if already installed
+                try:
+                    r = subprocess.run(
+                        ["adb", "-s", adb_target, "shell", "pm", "path", pkg],
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    if r.returncode == 0 and r.stdout.strip():
+                        installed += 1
+                        continue
+                except Exception:
+                    pass
+
+                # Search APK cache directories for matching APK
+                apk_found = False
+                for apk_dir in apk_dirs:
+                    if not apk_dir.exists():
+                        continue
+                    # Match by package name (e.g., com.venmo.apk or com.venmo*.apk)
+                    candidates = list(apk_dir.glob(f"{pkg}*.apk")) + list(apk_dir.glob(f"{app['name']}*.apk"))
+                    if candidates:
+                        apk_path = candidates[0]
+                        try:
+                            r = subprocess.run(
+                                ["adb", "-s", adb_target, "install", "-r", str(apk_path)],
+                                capture_output=True, text=True, timeout=120,
+                            )
+                            if r.returncode == 0:
+                                installed += 1
+                                apk_found = True
+                                logger.info(f"  Sideloaded: {app['name']} ({pkg})")
+                                break
+                        except Exception as e:
+                            logger.warning(f"  Sideload failed for {pkg}: {e}")
+
+                if not apk_found:
+                    logger.debug(f"  No APK found for {pkg} — skipping sideload")
+
+        return installed
+
     async def _stage_install_apps(self, job: WorkflowJob, bundles: List[str]):
-        """Stage: Install apps via AI agent (direct call — no HTTP back-loop)."""
+        """Stage: Install apps via AI agent, with ADB sideload fallback."""
         from app_bundles import APP_BUNDLES
         apps = []
         for bkey in bundles:
@@ -419,39 +585,49 @@ class WorkflowEngine:
         if not dev:
             raise RuntimeError(f"Device {job.device_id} not found")
 
-        from device_agent import DeviceAgent
-        agent = DeviceAgent(adb_target=dev.adb_target)
+        # Try AI agent first, fall back to ADB sideload
+        agent_ok = self._check_agent_available(dev.adb_target)
 
-        batch_size = 3
-        batches = [apps[i:i + batch_size] for i in range(0, min(len(apps), 12), batch_size)]
+        if agent_ok:
+            from device_agent import DeviceAgent
+            agent = DeviceAgent(adb_target=dev.adb_target)
 
-        for batch_idx, batch in enumerate(batches):
-            app_list = ", ".join(batch)
-            steps_per_app = 25
-            prompt = (f"Open Google Play Store and install these apps one by one: "
-                      f"{app_list}. For each: search by name, tap Install, wait for "
-                      f"it to complete, then search for the next. Skip any requiring payment.")
+            batch_size = 3
+            batches = [apps[i:i + batch_size] for i in range(0, min(len(apps), 12), batch_size)]
 
-            try:
-                task = agent.start_task(prompt, max_steps=steps_per_app * len(batch))
-                task_id = task.get("task_id", "")
-            except Exception as e:
-                logger.warning(f"App install batch {batch_idx} failed to start: {e}")
-                continue
+            for batch_idx, batch in enumerate(batches):
+                app_list = ", ".join(batch)
+                steps_per_app = 25
+                prompt = (f"Open Google Play Store and install these apps one by one: "
+                          f"{app_list}. For each: search by name, tap Install, wait for "
+                          f"it to complete, then search for the next. Skip any requiring payment.")
 
-            # Poll agent task status directly
-            for _ in range(120):
-                await asyncio.sleep(5)
                 try:
-                    status = agent.get_task_status(task_id)
-                    if status.get("status") in ("completed", "failed", "stopped"):
-                        logger.info(f"App install batch {batch_idx+1}/{len(batches)}: "
-                                     f"{status.get('status')} ({status.get('steps_taken', 0)} steps)")
-                        break
-                except Exception:
+                    task = agent.start_task(prompt, max_steps=steps_per_app * len(batch))
+                    task_id = task.get("task_id", "")
+                except Exception as e:
+                    logger.warning(f"App install batch {batch_idx} failed to start: {e}")
                     continue
 
-            await asyncio.sleep(3)
+                for _ in range(120):
+                    await asyncio.sleep(5)
+                    try:
+                        status = agent.get_task_status(task_id)
+                        if status.get("status") in ("completed", "failed", "stopped"):
+                            logger.info(f"App install batch {batch_idx+1}/{len(batches)}: "
+                                         f"{status.get('status')} ({status.get('steps_taken', 0)} steps)")
+                            break
+                    except Exception:
+                        continue
+
+                await asyncio.sleep(3)
+        else:
+            logger.warning("AI agent unavailable — using ADB sideload fallback for app install")
+
+        # Verify + sideload fallback: check which apps are missing and sideload from cache
+        sideloaded = await asyncio.to_thread(self._adb_sideload_apps, dev.adb_target, bundles)
+        if sideloaded > 0:
+            logger.info(f"ADB sideload fallback: {sideloaded} apps installed/verified")
 
     async def _stage_wallet(self, job: WorkflowJob, card_data: Dict):
         """Stage: Set up wallet via ADB data injection."""
@@ -481,12 +657,64 @@ class WorkflowEngine:
         logger.info(f"Wallet provisioned: {result.card_network} ****{result.card_last4} "
                      f"({result.success_count}/4 targets)")
 
+    def _adb_warmup_fallback(self, adb_target: str, warmup_type: str):
+        """Fallback: ADB-scripted warmup when AI agent is unavailable.
+        Opens browser/YouTube via intents, performs basic navigation via input events."""
+        import subprocess
+        import random as _rnd
+
+        def _sh(cmd: str, timeout: int = 15):
+            subprocess.run(
+                ["adb", "-s", adb_target, "shell", cmd],
+                capture_output=True, text=True, timeout=timeout,
+            )
+
+        def _sleep(lo: float = 1.0, hi: float = 3.0):
+            time.sleep(_rnd.uniform(lo, hi))
+
+        if warmup_type == "browse":
+            urls = [
+                "https://www.google.com/search?q=weather+forecast",
+                "https://www.google.com/search?q=best+restaurants+near+me",
+                "https://www.wikipedia.org",
+                "https://news.google.com",
+                "https://www.reddit.com",
+            ]
+            for url in urls[:3]:
+                _sh(f"am start -a android.intent.action.VIEW -d '{url}'")
+                _sleep(3.0, 6.0)
+                # Scroll down a few times
+                for _ in range(_rnd.randint(2, 5)):
+                    _sh(f"input swipe 540 1200 540 400 {_rnd.randint(300, 600)}")
+                    _sleep(1.0, 2.5)
+            logger.info("ADB warmup (browse): visited 3 URLs with scroll gestures")
+
+        elif warmup_type == "youtube":
+            _sh("am start -a android.intent.action.VIEW -d 'https://www.youtube.com'")
+            _sleep(4.0, 7.0)
+            # Scroll feed
+            for _ in range(_rnd.randint(3, 6)):
+                _sh(f"input swipe 540 1200 540 400 {_rnd.randint(300, 600)}")
+                _sleep(1.5, 3.0)
+            # Tap center to play a video
+            _sh("input tap 540 600")
+            _sleep(15.0, 25.0)  # Watch for 15-25 seconds
+            _sh("input keyevent KEYCODE_BACK")
+            _sleep(2.0, 4.0)
+            logger.info("ADB warmup (youtube): scrolled feed + watched 1 video")
+
     async def _stage_warmup(self, job: WorkflowJob, warmup_type: str,
                             aging: Dict):
-        """Stage: Run warmup browsing/YouTube sessions (direct agent call)."""
+        """Stage: Run warmup browsing/YouTube sessions (agent with ADB fallback)."""
         dev = self.dm.get_device(job.device_id) if self.dm else None
         if not dev:
             raise RuntimeError(f"Device {job.device_id} not found")
+
+        # Check if AI agent is available
+        if not self._check_agent_available(dev.adb_target):
+            logger.warning(f"AI agent unavailable — using ADB warmup fallback ({warmup_type})")
+            await asyncio.to_thread(self._adb_warmup_fallback, dev.adb_target, warmup_type)
+            return
 
         from device_agent import DeviceAgent
         agent = DeviceAgent(adb_target=dev.adb_target)
@@ -500,8 +728,13 @@ class WorkflowEngine:
             prompt = ("Open YouTube. Browse the home feed, watch a video for 30 seconds, "
                       "scroll the feed, watch another video. Like one video.")
 
-        task = agent.start_task(prompt, max_steps=25)
-        task_id = task.get("task_id", "")
+        try:
+            task = agent.start_task(prompt, max_steps=25)
+            task_id = task.get("task_id", "")
+        except Exception as e:
+            logger.warning(f"Agent warmup start failed: {e} — using ADB fallback")
+            await asyncio.to_thread(self._adb_warmup_fallback, dev.adb_target, warmup_type)
+            return
 
         # Poll agent directly (up to 15 min)
         for _ in range(180):

@@ -1,0 +1,125 @@
+{
+  "padCode": "ACP251008CRDQZPF",
+  "modemPropertiesList": [
+    {
+      "propertiesName": "imei",
+      "propertiesValue": "591038975514001"
+    },
+    {
+      "propertiesName": "phonenum",
+      "propertiesValue": "6547514550"
+    },
+    {
+      "propertiesName": "SimOperatorName",
+      "propertiesValue": "Singtel"
+    },
+    {
+      "propertiesName": "simCountryIso",
+      "propertiesValue": "sg"
+    },
+    {
+      "propertiesName": "ICCID",
+      "propertiesValue": ""
+    },
+    {
+      "propertiesName": "IMSI",
+      "propertiesValue": "525034874221023"
+    },
+    {
+      "propertiesName": "MCCMNC",
+      "propertiesValue": "525,03"
+    }
+  ],
+  "settingPropertiesList": [],
+  "systemPropertiesList": [
+    {
+      "propertiesName": "wifiMac",
+      "propertiesValue": "46:49:48:D6:E1:3D"
+    },
+    {
+      "propertiesName": "ro.product.manufacturer",
+      "propertiesValue": "samsung"
+    },
+    {
+      "propertiesName": "ro.product.brand",
+      "propertiesValue": "samsung"
+    },
+    {
+      "propertiesName": "ro.product.model",
+      "propertiesValue": "SM-S9280"
+    },
+    {
+      "propertiesName": "ro.build.id",
+      "propertiesValue": "AP3A.240905.015.A2"
+    },
+    {
+      "propertiesName": "ro.build.display.id",
+      "propertiesValue": "AP3A.240905.015.A2.S9280ZCS4BYDF"
+    },
+    {
+      "propertiesName": "ro.product.name",
+      "propertiesValue": "e3qzcx"
+    },
+    {
+      "propertiesName": "ro.product.device",
+      "propertiesValue": "e3q"
+    },
+    {
+      "propertiesName": "ro.product.board",
+      "propertiesValue": "pineapple"
+    },
+    {
+      "propertiesName": "ro.build.tags",
+      "propertiesValue": "release-keys"
+    },
+    {
+      "propertiesName": "ro.build.fingerprint",
+      "propertiesValue": "samsung/e3qzcx/e3q:15/AP3A.240905.015.A2/S9280ZCS4BYDF:user/release-keys"
+    },
+    {
+      "propertiesName": "ro.build.date.utc",
+      "propertiesValue": "1747303183"
+    },
+    {
+      "propertiesName": "ro.build.user",
+      "propertiesValue": "dpi"
+    },
+    {
+      "propertiesName": "ro.build.host",
+      "propertiesValue": "SWDK6505"
+    },
+    {
+      "propertiesName": "ro.build.description",
+      "propertiesValue": "e3qzcx-user 15 AP3A.240905.015.A2 S9280ZCS4BYDF release-keys"
+    },
+    {
+      "propertiesName": "ro.build.version.incremental",
+      "propertiesValue": "S9280ZCS4BYDF"
+    },
+    {
+      "propertiesName": "ro.build.version.codename",
+      "propertiesValue": "REL"
+    },
+    {
+      "propertiesName": "ro.build.version.release",
+      "propertiesValue": "15"
+    },
+    {
+      "propertiesName": "bluetoothaddr",
+      "propertiesValue": "A2:52:E0:07:28:5A"
+    },
+    {
+      "propertiesName": "gpuVendor",
+      "propertiesValue": "ARM"
+    },
+    {
+      "propertiesName": "gpuRenderer",
+      "propertiesValue": "Adreno (TM) 750"
+    },
+    {
+      "propertiesName": "gpuVersion",
+      "propertiesValue": "OpenGL ES 3.2 v1.g25p0-00eac0.15dce8f74bc43a2f253e71065913a6e8"
+    }
+  ],
+  "oaidPropertiesList": []
+}

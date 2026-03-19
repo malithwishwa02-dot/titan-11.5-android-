@@ -334,15 +334,35 @@ async function createMainWindow() {
   `));
   mainWindow.show();
 
-  // Wait for server then load the console
+  // Wait for server then load the console (with retry)
+  const MAX_LOAD_RETRIES = 3;
+  let loaded = false;
   try {
     console.log('[titan] Waiting for server...');
     await waitForServer();
     console.log('[titan] Server ready, loading console at', API_URL + '/');
-    await mainWindow.loadURL(API_URL + '/');
-    console.log('[titan] Console URL loaded successfully');
+
+    for (let attempt = 1; attempt <= MAX_LOAD_RETRIES && !loaded; attempt++) {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        console.error('[titan] Window destroyed before load, recreating...');
+        return;
+      }
+      try {
+        await mainWindow.loadURL(API_URL + '/');
+        loaded = true;
+        console.log('[titan] Console URL loaded successfully');
+      } catch (loadErr) {
+        console.warn(`[titan] Load attempt ${attempt}/${MAX_LOAD_RETRIES} failed: ${loadErr.message}`);
+        if (attempt < MAX_LOAD_RETRIES) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
+      }
+    }
   } catch (err) {
-    console.error('[titan] Error during server wait or page load:', err.message);
+    console.error('[titan] Error during server wait:', err.message);
+  }
+
+  if (!loaded && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.loadURL('data:text/html,' + encodeURIComponent(`
       <!DOCTYPE html>
       <html>

@@ -100,9 +100,8 @@ async def genesis_create(body: GenesisCreateBody):
         
         # If cardholder provided but no address, try to derive from location
         if body.cc_cardholder and not persona_address:
-            # Use location preset to derive approximate address
-            from device_presets import get_location_config
-            loc_config = get_location_config(body.location)
+            from device_presets import LOCATIONS
+            loc_config = LOCATIONS.get(body.location, {})
             if loc_config:
                 persona_address = {
                     "address": "",  # Will be generated

@@ -19,4 +19,4 @@ export CVD_BIN_DIR="${CVD_BIN_DIR:-/opt/titan/cuttlefish/cf/bin}"
 export CVD_HOME_BASE="${CVD_HOME_BASE:-/opt/titan/cuttlefish}"
 export CVD_IMAGES_DIR="${CVD_IMAGES_DIR:-/opt/titan/cuttlefish/images}"
 
-exec "$ELECTRON" "$SCRIPT_DIR" "$@"
+exec "$ELECTRON" --no-sandbox --disable-gpu "$SCRIPT_DIR" "$@"

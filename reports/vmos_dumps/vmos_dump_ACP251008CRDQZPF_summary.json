@@ -1,0 +1,333 @@
+{
+  "pad_code": "ACP251008CRDQZPF",
+  "dump_time": "2026-03-18T19:55:59.325321",
+  "properties": {
+    "padCode": "ACP251008CRDQZPF",
+    "modemPropertiesList": [
+      {
+        "propertiesName": "imei",
+        "propertiesValue": "591038975514001"
+      },
+      {
+        "propertiesName": "phonenum",
+        "propertiesValue": "6547514550"
+      },
+      {
+        "propertiesName": "SimOperatorName",
+        "propertiesValue": "Singtel"
+      },
+      {
+        "propertiesName": "simCountryIso",
+        "propertiesValue": "sg"
+      },
+      {
+        "propertiesName": "ICCID",
+        "propertiesValue": ""
+      },
+      {
+        "propertiesName": "IMSI",
+        "propertiesValue": "525034874221023"
+      },
+      {
+        "propertiesName": "MCCMNC",
+        "propertiesValue": "525,03"
+      }
+    ],
+    "settingPropertiesList": [],
+    "systemPropertiesList": [
+      {
+        "propertiesName": "wifiMac",
+        "propertiesValue": "46:49:48:D6:E1:3D"
+      },
+      {
+        "propertiesName": "ro.product.manufacturer",
+        "propertiesValue": "samsung"
+      },
+      {
+        "propertiesName": "ro.product.brand",
+        "propertiesValue": "samsung"
+      },
+      {
+        "propertiesName": "ro.product.model",
+        "propertiesValue": "SM-S9280"
+      },
+      {
+        "propertiesName": "ro.build.id",
+        "propertiesValue": "AP3A.240905.015.A2"
+      },
+      {
+        "propertiesName": "ro.build.display.id",
+        "propertiesValue": "AP3A.240905.015.A2.S9280ZCS4BYDF"
+      },
+      {
+        "propertiesName": "ro.product.name",
+        "propertiesValue": "e3qzcx"
+      },
+      {
+        "propertiesName": "ro.product.device",
+        "propertiesValue": "e3q"
+      },
+      {
+        "propertiesName": "ro.product.board",
+        "propertiesValue": "pineapple"
+      },
+      {
+        "propertiesName": "ro.build.tags",
+        "propertiesValue": "release-keys"
+      },
+      {
+        "propertiesName": "ro.build.fingerprint",
+        "propertiesValue": "samsung/e3qzcx/e3q:15/AP3A.240905.015.A2/S9280ZCS4BYDF:user/release-keys"
+      },
+      {
+        "propertiesName": "ro.build.date.utc",
+        "propertiesValue": "1747303183"
+      },
+      {
+        "propertiesName": "ro.build.user",
+        "propertiesValue": "dpi"
+      },
+      {
+        "propertiesName": "ro.build.host",
+        "propertiesValue": "SWDK6505"
+      },
+      {
+        "propertiesName": "ro.build.description",
+        "propertiesValue": "e3qzcx-user 15 AP3A.240905.015.A2 S9280ZCS4BYDF release-keys"
+      },
+      {
+        "propertiesName": "ro.build.version.incremental",
+        "propertiesValue": "S9280ZCS4BYDF"
+      },
+      {
+        "propertiesName": "ro.build.version.codename",
+        "propertiesValue": "REL"
+      },
+      {
+        "propertiesName": "ro.build.version.release",
+        "propertiesValue": "15"
+      },
+      {
+        "propertiesName": "bluetoothaddr",
+        "propertiesValue": "A2:52:E0:07:28:5A"
+      },
+      {
+        "propertiesName": "gpuVendor",
+        "propertiesValue": "ARM"
+      },
+      {
+        "propertiesName": "gpuRenderer",
+        "propertiesValue": "Adreno (TM) 750"
+      },
+      {
+        "propertiesName": "gpuVersion",
+        "propertiesValue": "OpenGL ES 3.2 v1.g25p0-00eac0.15dce8f74bc43a2f253e71065913a6e8"
+      }
+    ],
+    "oaidPropertiesList": []
+  },
+  "details": {},
+  "build_props": {
+    "apex.all.ready": "true",
+    "apexd.status": "ready",
+    "bluetooth.profile.a2dp.source.enabled": "true",
+    "bluetooth.profile.asha.central.enabled": "true",
+    "bluetooth.profile.avrcp.target.enabled": "true",
+    "bluetooth.profile.bas.client.enabled": "true",
+    "bluetooth.profile.gatt.enabled": "true",
+    "bluetooth.profile.hfp.ag.enabled": "true",
+    "bluetooth.profile.hid.device.enabled": "true",
+    "bluetooth.profile.hid.host.enabled": "true",
+    "bluetooth.profile.map.server.enabled": "true",
+    "bluetooth.profile.opp.enabled": "true",
+    "bluetooth.profile.pan.nap.enabled": "true",
+    "bluetooth.profile.pan.panu.enabled": "true",
+    "bluetooth.profile.pbap.server.enabled": "true",
+    "bluetooth.profile.sap.server.enabled": "true",
+    "bootreceiver.enable": "1",
+    "bpf.progs_loaded": "1",
+    "build.version.extensions.ad_services": "15",
+    "build.version.extensions.r": "15",
+    "build.version.extensions.s": "15",
+    "build.version.extensions.t": "15",
+    "build.version.extensions.u": "15",
+    "build.version.extensions.v": "15",
+    "cache_key.bluetooth.bluetooth_adapter_get_connection_state": "-5259293650750921840",
+    "cache_key.bluetooth.bluetooth_adapter_get_profile_connection_state": "-5259293650750921842",
+    "cache_key.bluetooth.bluetooth_adapter_get_state": "-5259293650750921835",
+    "cache_key.bluetooth.bluetooth_adapter_is_offloaded_filtering_supported": "-5259293650750921841",
+    "cache_key.bluetooth.bluetooth_device_get_bond_state": "-5259293650750921839",
+    "cache_key.bluetooth.bluetooth_map_get_connection_state": "-5259293650750921838",
+    "cache_key.bluetooth.bluetooth_sap_get_connection_state": "-5259293650750921837",
+    "cache_key.system_server.account_user_data": "-2053247490798682189",
+    "cache_key.system_server.accounts_data": "-2053247490798682307",
+    "cache_key.system_server.connectionless_stylus_handwriting": "-2053247490798682299",
+    "cache_key.system_server.device_policy_manager_caches": "-2053247490798682341",
+    "cache_key.system_server.display_info": "-2053247490798682176",
+    "cache_key.system_server.get_credential_type": "-205324749079868"
+  },
+  "apps": [
+    {
+      "appState": 0,
+      "appName": "Google",
+      "packageName": "com.google.android.googlequicksearchbox",
+      "versionName": "17.9.53.ve.arm64",
+      "versionCode": "301708420"
+    },
+    {
+      "appState": 0,
+      "appName": "Wise",
+      "packageName": "com.transferwise.android",
+      "versionName": "8.84.2",
+      "versionCode": "1292"
+    },
+    {
+      "appState": 0,
+      "appName": "PayPal",
+      "packageName": "com.paypal.android.p2pmobile",
+      "versionName": "8.63.0",
+      "versionCode": "1150081603"
+    },
+    {
+      "appState": 0,
+      "appName": "Bybit",
+      "packageName": "com.bybit.app",
+      "versionName": "4.51.1",
+      "versionCode": "2024101600"
+    },
+    {
+      "appState": 0,
+      "appName": "Chime",
+      "packageName": "com.onedebit.chime",
+      "versionName": "5.149.0",
+      "versionCode": "84765"
+    },
+    {
+      "appState": 0,
+      "appName": "Gemini",
+      "packageName": "com.google.android.apps.bard",
+      "versionName": "1.0.869192867",
+      "versionCode": "287"
+    },
+    {
+      "appState": 0,
+      "appName": "Drive",
+      "packageName": "com.google.android.apps.docs",
+      "versionName": "2.24.307.2.all.alldpi",
+      "versionCode": "213684160"
+    },
+    {
+      "appState": 0,
+      "appName": "Google\u00a0Wallet",
+      "packageName": "com.google.android.apps.walletnfcrel",
+      "versionName": "26.9.875958994",
+      "versionCode": "933390105"
+    },
+    {
+      "appState": 0,
+      "appName": "Klarna",
+      "packageName": "com.myklarnamobile",
+      "versionName": "26.11.311",
+      "versionCode": "759130"
+    },
+    {
+      "appState": 0,
+      "appName": "Fanytel Business",
+      "packageName": "com.app.fanytelbusiness",
+      "versionName": "1.4.2",
+      "versionCode": "60"
+    }
+  ],
+  "screenshot": "https://edge-hk-07-ac.armcloud.net/api/agent/pad/screenshot?cbsIp=172.22.133.42&padCode=ACP251008CRDQZPF&format=png&width=1440&height=3120&quality=60&expireAt=1773865565&sign=oSVNW3_ZdELgviKXJDwxL2NmopUSnUqqM38pR2zet_U=",
+  "contacts": [],
+  "call_logs": [],
+  "sms": [],
+  "chrome": {
+    "files": [
+      "Account Web Data",
+      "Account Web Data-journal",
+      "Accounts",
+      "Affiliation Database",
+      "Affiliation Database-journal",
+      "AutofillStrikeDatabase",
+      "BrowsingTopicsSiteData",
+      "BrowsingTopicsSiteData-journal",
+      "BrowsingTopicsState",
+      "BudgetDatabase",
+      "Cookies",
+      "Cookies-journal",
+      "DIPS",
+      "DIPS-journal",
+      "DawnGraphiteCache",
+      "DawnWebGPUCache",
+      "Download Service",
+      "Favicons",
+      "Favicons-journal",
+      "Feature Engagement Tracker",
+      "GCM Store",
+      "GPUCache",
+      "History",
+      "History-journal",
+      "LOCK",
+      "LOG",
+      "LOG.old",
+      "Local Storage",
+      "MediaDeviceSalts",
+      "MediaDeviceSalts-journal",
+      "Network Action Predictor",
+      "Network Action Predictor-journal",
+      "Network Persistent State",
+      "Offline Pages",
+      "PersistentOriginTrials",
+      "Preferences",
+      "README",
+      "Reporting and NEL",
+      "Reporting and NEL-journal",
+      "SCT Auditing Pending Reports",
+      "Safe Browsing Cookies",
+      "Safe Browsing Cookies-journal",
+      "Segmentation Platform",
+      "Session Storage",
+      "Shared Dictionary",
+      "SharedStorage",
+      "SharedStorage-wal",
+      "Shortcuts",
+      "Shortcuts-journal",
+      "Sync Data",
+      "Top Sites",
+      "Top Sites-journal",
+      "TransportSecurity",
+      "Trust Tokens",
+      "Trust Tokens-journal",
+      "UsageStats",
+      "VideoDecodeStats",
+      "Visited Links",
+      "Web Data",
+      "Web Data-journal",
+      "WebStorage",
+      "blob_storage",
+      "commerce_subscription_db",
+      "databases",
+      "feedv2",
+      "heavy_ad_intervention_opt_out.db",
+      "heavy_ad_intervention_opt_out.db-journal",
+      "optimization_guide_hint_cache_store",
+      "parcel_tracking_db",
+      "persisted_state_db",
+      "share_history",
+      "shared_proto_db"
+    ],
+    "cookies_exists": true
+  },
+  "accounts": [],
+  "wallet": {
+    "nfc_prefs": null
+  },
+  "wifi": {
+    "raw": null
+  },
+  "gallery": [
+    "total 3",
+    "drwxrws--- 2 u0_a103 media_rw 3488 2026-03-14 00:10 .thumbnails"
+  ]
+}

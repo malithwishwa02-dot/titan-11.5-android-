@@ -1,0 +1,44 @@
+[
+  {
+    "appState": 0,
+    "appName": "Wise",
+    "packageName": "com.transferwise.android",
+    "versionName": "8.84.2",
+    "versionCode": "1292"
+  },
+  {
+    "appState": 0,
+    "appName": "PayPal",
+    "packageName": "com.paypal.android.p2pmobile",
+    "versionName": "8.63.0",
+    "versionCode": "1150081603"
+  },
+  {
+    "appState": 0,
+    "appName": "Bybit",
+    "packageName": "com.bybit.app",
+    "versionName": "4.51.1",
+    "versionCode": "2024101600"
+  },
+  {
+    "appState": 0,
+    "appName": "Chime",
+    "packageName": "com.onedebit.chime",
+    "versionName": "5.149.0",
+    "versionCode": "84765"
+  },
+  {
+    "appState": 0,
+    "appName": "Drive",
+    "packageName": "com.google.android.apps.docs",
+    "versionName": "2.24.307.2.all.alldpi",
+    "versionCode": "213684160"
+  },
+  {
+    "appState": 0,
+    "appName": "Kitsune Mask",
+    "packageName": "io.github.huskydg.magisk",
+    "versionName": "6c6b2354",
+    "versionCode": "29999"
+  }
+]

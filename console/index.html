@@ -1427,6 +1427,19 @@
             <div><label class="lbl">Location</label><select x-model="training.wf_location" class="inp"><template x-for="(l,key) in locations" :key="key"><option :value="key" x-text="key"></option></template></select></div>
           </div>
           <div><label class="lbl">Age Days</label><input type="number" x-model.number="training.wf_age_days" placeholder="90" class="inp w-32"></div>
+          <div class="border-t border-gray-800 pt-3 mt-1"><span class="text-[10px] text-gray-500 uppercase tracking-wider">Persona (optional)</span></div>
+          <div class="grid grid-cols-3 gap-3">
+            <div><label class="lbl">Name</label><input type="text" x-model="training.wf_name" placeholder="Auto-generated" class="inp text-xs"></div>
+            <div><label class="lbl">Email</label><input type="text" x-model="training.wf_email" placeholder="Auto-generated" class="inp text-xs"></div>
+            <div><label class="lbl">Phone</label><input type="text" x-model="training.wf_phone" placeholder="Auto-generated" class="inp text-xs"></div>
+          </div>
+          <div class="border-t border-gray-800 pt-3 mt-1"><span class="text-[10px] text-gray-500 uppercase tracking-wider">Payment Card (optional)</span></div>
+          <div class="grid grid-cols-4 gap-3">
+            <div class="col-span-2"><label class="lbl">Card Number</label><input type="text" x-model="training.wf_cc_number" placeholder="4532..." class="inp text-xs font-mono"></div>
+            <div><label class="lbl">Exp (MM/YY)</label><input type="text" x-model="training.wf_cc_exp" placeholder="12/27" class="inp text-xs"></div>
+            <div><label class="lbl">CVV</label><input type="text" x-model="training.wf_cc_cvv" placeholder="123" class="inp text-xs"></div>
+          </div>
+          <div><label class="lbl">Cardholder</label><input type="text" x-model="training.wf_cc_holder" placeholder="Same as persona name" class="inp text-xs"></div>
           <button @click="startWorkflow()" :disabled="training.wf_running" class="btn-green text-black px-6 py-3 rounded-lg text-sm font-bold w-full disabled:opacity-50"><span x-show="!training.wf_running">START WORKFLOW</span><span x-show="training.wf_running">Running...</span></button>
         </div>
       </div>
@@ -1647,7 +1660,7 @@ function titanConsole() {
     intelTab: 'AI Copilot', networkTab: 'Mullvad VPN', targetsTab: 'Analyze',
     adminTab: 'Services', aiTab: 'Tasks', trainingTab: 'Workflow', settingsTab: 'VPN',
 
-    training: { wf_device:'',wf_preset:'pixel_9_pro',wf_carrier:'tmobile_us',wf_location:'nyc',wf_age_days:90,wf_running:false,wf_log:'',report_device:'',report_log:'',verify_device:'',verify_running:false,verify_log:'',rec_device:'',rec_name:'',rec_active:false,rec_log:'',scen_device:'',scen_id:'browse_social',scen_running:false,scen_log:'',trajectories:[],traj_stats:{},export_log:'' },
+    training: { wf_device:'',wf_preset:'pixel_9_pro',wf_carrier:'tmobile_us',wf_location:'nyc',wf_age_days:90,wf_name:'',wf_email:'',wf_phone:'',wf_cc_number:'',wf_cc_exp:'',wf_cc_cvv:'',wf_cc_holder:'',wf_running:false,wf_log:'',report_device:'',report_log:'',verify_device:'',verify_running:false,verify_log:'',rec_device:'',rec_name:'',rec_active:false,rec_log:'',scen_device:'',scen_id:'browse_social',scen_running:false,scen_log:'',trajectories:[],traj_stats:{},export_log:'' },
     bundlesTab: 'Browse',
     bundles: { list:[],country:'US',country_list:[],install_device:'',install_bundle:'',installing:false,install_log:'' },
     screenAgent: { device:'',tap_coords:'',type_text:'',app_package:'',task_prompt:'',max_steps:25,running:false,log:'' },
@@ -2432,7 +2445,10 @@ function titanConsole() {
       if(!this.training.wf_device) { alert('Select a device'); return; }
       this.training.wf_running=true; this.training.wf_log='Starting workflow on '+this.training.wf_device+'...\n';
       try {
-        const r=await this.api('/training/workflow/start/'+this.training.wf_device,{method:'POST',body:JSON.stringify({preset:this.training.wf_preset,carrier:this.training.wf_carrier,location:this.training.wf_location,age_days:this.training.wf_age_days})});
+        const body={preset:this.training.wf_preset,carrier:this.training.wf_carrier,location:this.training.wf_location,age_days:this.training.wf_age_days};
+        if(this.training.wf_name||this.training.wf_email||this.training.wf_phone){body.persona={name:this.training.wf_name||'',email:this.training.wf_email||'',phone:this.training.wf_phone||''};}
+        if(this.training.wf_cc_number){const exp=(this.training.wf_cc_exp||'').split('/');body.card_data={number:this.training.wf_cc_number,exp_month:parseInt(exp[0])||12,exp_year:parseInt(exp[1]>=100?exp[1]:2000+parseInt(exp[1]||27)),cvv:this.training.wf_cc_cvv||'',cardholder:this.training.wf_cc_holder||this.training.wf_name||''};}
+        const r=await this.api('/training/workflow/start/'+this.training.wf_device,{method:'POST',body:JSON.stringify(body)});
         this.training.wf_log+='Job started: '+(r.job_id||'unknown')+'\n'+JSON.stringify(r,null,2);
         await this.loadWorkflowJobs();
       } catch(e) { this.training.wf_log+='Error: '+e.message+'\n'; }

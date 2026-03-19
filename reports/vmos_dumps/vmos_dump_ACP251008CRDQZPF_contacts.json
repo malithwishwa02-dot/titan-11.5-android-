@@ -1,0 +1,5 @@
+{
+  "raw": "Error while accessing provider:contacts\njava.lang.IllegalArgumentException: Invalid column data1\n\tat android.database.DatabaseUtils.readExceptionFromParcel(DatabaseUtils.java:185)\n\tat android.database.DatabaseUtils.readExceptionFromParcel(DatabaseUtils.java:155)\n\tat android.content.ContentProviderProxy.query(ContentProviderNative.java:495)\n\tat com.android.commands.content.Content$QueryCommand.onExecute(Content.java:661)\n\tat com.android.commands.content.Content$Command.execute(Content.java:522)\n\tat com.android.commands.content.Content.main(Content.java:735)\n\tat com.android.internal.os.RuntimeInit.nativeFinishInit(Native Method)\n\tat com.android.internal.os.RuntimeInit.main(RuntimeInit.java:369)\n",
+  "count": 0,
+  "parsed": []
+}

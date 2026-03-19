@@ -177,18 +177,64 @@ class PaymentHistoryForge:
         now = datetime.now()
         profile_start = now - timedelta(days=age_days)
 
-        # Generate transactions with realistic distribution
-        for i in range(num_transactions):
+        # GAP-W3: Generate recurring subscription transactions first
+        # Real subscriptions hit on a fixed day each month (e.g., always the 15th)
+        sub_info = MERCHANT_CATEGORIES.get("subscriptions", {})
+        sub_merchants = sub_info.get("merchants", [])
+        if sub_merchants and age_days >= 30:
+            # Pick 1-3 subscriptions for this persona
+            num_subs = self._rng.randint(1, min(3, len(sub_merchants)))
+            chosen_subs = self._rng.sample(sub_merchants, num_subs)
+            for sub_merchant in chosen_subs:
+                # Fixed billing day (1-28 to avoid month-length issues)
+                billing_day = self._rng.randint(1, 28)
+                sub_amount = round(self._rng.uniform(*sub_info["amount_range"]), 2)
+                # Generate one charge per month for the entire age
+                months = age_days // 30
+                for m in range(months):
+                    sub_date = now - timedelta(days=m * 30)
+                    try:
+                        sub_date = sub_date.replace(day=billing_day,
+                                                     hour=self._rng.randint(0, 5),
+                                                     minute=self._rng.randint(0, 59))
+                    except ValueError:
+                        sub_date = sub_date.replace(day=min(billing_day, 28),
+                                                     hour=self._rng.randint(0, 5),
+                                                     minute=self._rng.randint(0, 59))
+                    if sub_date < profile_start:
+                        continue
+                    txn_idx = len(transactions)
+                    transactions.append({
+                        "id": f"txn_{txn_idx:06d}",
+                        "timestamp": sub_date.isoformat(),
+                        "merchant": sub_merchant,
+                        "category": "subscriptions",
+                        "amount": sub_amount,
+                        "currency": "USD",
+                        "card_last4": card_last4,
+                        "card_network": card_network,
+                        "status": "completed",
+                        "mcc": self._get_mcc_code("subscriptions"),
+                        "recurring": True,
+                    })
+                    num_transactions -= 1  # Count against total budget
+
+        # Generate remaining transactions with realistic distribution
+        # Exclude subscriptions category (already handled above)
+        non_sub_categories = [k for k in MERCHANT_CATEGORIES.keys() if k != "subscriptions"]
+        non_sub_weights = [1, 1, 2, 1.5, 0.5, 1, 0.5, 0.5]  # Restaurants more common
+
+        for i in range(max(0, num_transactions)):
             # Bias towards more recent transactions
             days_ago = int(self._rng.expovariate(1.0 / (age_days / 3)))
             days_ago = min(days_ago, age_days - 1)
 
             transaction_time = now - timedelta(days=days_ago)
 
-            # Select category with weighted distribution
+            # Select category with weighted distribution (no subscriptions)
             category = self._rng.choices(
-                list(MERCHANT_CATEGORIES.keys()),
-                weights=[1, 1, 2, 1.5, 0.5, 1, 0.5, 0.5, 0.5],  # Restaurants more common
+                non_sub_categories,
+                weights=non_sub_weights[:len(non_sub_categories)],
                 k=1
             )[0]
 
@@ -201,8 +247,9 @@ class PaymentHistoryForge:
 
             transaction_time = transaction_time.replace(hour=hour, minute=self._rng.randint(0, 59))
 
+            txn_idx = len(transactions)
             transactions.append({
-                "id": f"txn_{i:06d}",
+                "id": f"txn_{txn_idx:06d}",
                 "timestamp": transaction_time.isoformat(),
                 "merchant": merchant,
                 "category": category,

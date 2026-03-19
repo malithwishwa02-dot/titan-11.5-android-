@@ -1,0 +1,125 @@
+{
+  "padCode": "ACP2509244LGV1MV",
+  "modemPropertiesList": [
+    {
+      "propertiesName": "imei",
+      "propertiesValue": "517722837334413"
+    },
+    {
+      "propertiesName": "phonenum",
+      "propertiesValue": "12677542792"
+    },
+    {
+      "propertiesName": "SimOperatorName",
+      "propertiesValue": "Singtel"
+    },
+    {
+      "propertiesName": "simCountryIso",
+      "propertiesValue": "us"
+    },
+    {
+      "propertiesName": "ICCID",
+      "propertiesValue": ""
+    },
+    {
+      "propertiesName": "IMSI",
+      "propertiesValue": "310026909644419"
+    },
+    {
+      "propertiesName": "MCCMNC",
+      "propertiesValue": "310,026"
+    }
+  ],
+  "settingPropertiesList": [],
+  "systemPropertiesList": [
+    {
+      "propertiesName": "wifiMac",
+      "propertiesValue": "D2:76:C4:B4:A4:62"
+    },
+    {
+      "propertiesName": "ro.product.manufacturer",
+      "propertiesValue": "OnePlus"
+    },
+    {
+      "propertiesName": "ro.product.brand",
+      "propertiesValue": "OnePlus"
+    },
+    {
+      "propertiesName": "ro.product.model",
+      "propertiesValue": "PKX110"
+    },
+    {
+      "propertiesName": "ro.build.id",
+      "propertiesValue": "AP3A.240617.008"
+    },
+    {
+      "propertiesName": "ro.build.display.id",
+      "propertiesValue": "PKX110_15.0.2.401(CN01)"
+    },
+    {
+      "propertiesName": "ro.product.name",
+      "propertiesValue": "PKX110"
+    },
+    {
+      "propertiesName": "ro.product.device",
+      "propertiesValue": "OP60F5L1"
+    },
+    {
+      "propertiesName": "ro.product.board",
+      "propertiesValue": "sun"
+    },
+    {
+      "propertiesName": "ro.build.tags",
+      "propertiesValue": "release-keys"
+    },
+    {
+      "propertiesName": "ro.build.fingerprint",
+      "propertiesValue": "OnePlus/PKX110/OP60F5L1:15/AP3A.240617.008/V.1a42e08_42cb7b_428e83:user/release-keys"
+    },
+    {
+      "propertiesName": "ro.build.date.utc",
+      "propertiesValue": "1750864743"
+    },
+    {
+      "propertiesName": "ro.build.user",
+      "propertiesValue": "root"
+    },
+    {
+      "propertiesName": "ro.build.host",
+      "propertiesValue": "dg02-pool07-kvm45"
+    },
+    {
+      "propertiesName": "ro.build.description",
+      "propertiesValue": "qssi-user 15 AP3A.240617.008 1750864743050 release-keys"
+    },
+    {
+      "propertiesName": "ro.build.version.incremental",
+      "propertiesValue": "V.1a42e08_42cb7b_428e83"
+    },
+    {
+      "propertiesName": "ro.build.version.codename",
+      "propertiesValue": "REL"
+    },
+    {
+      "propertiesName": "ro.build.version.release",
+      "propertiesValue": "15"
+    },
+    {
+      "propertiesName": "bluetoothaddr",
+      "propertiesValue": "D6:DC:7D:EC:CC:E8"
+    },
+    {
+      "propertiesName": "gpuVendor",
+      "propertiesValue": "ARM"
+    },
+    {
+      "propertiesName": "gpuRenderer",
+      "propertiesValue": "Adreno (TM) 830"
+    },
+    {
+      "propertiesName": "gpuVersion",
+      "propertiesValue": "OpenGL ES 3.2 v1.g25p0-00eac0.15dce8f74bc43a2f253e71065913a6e8"
+    }
+  ],
+  "oaidPropertiesList": []
+}

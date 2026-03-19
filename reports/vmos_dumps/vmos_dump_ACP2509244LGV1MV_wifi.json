@@ -1,0 +1,3 @@
+{
+  "raw": "<?xml version=\"1.0\" encoding=\"utf-8\"?><WifiConfigStoreData><NetworkList><Network><WifiConfiguration><string name=\"SSID\">&quot;ATT-5G-Home&quot;</string><boolean name=\"SelfAdded\" value=\"false\"/><boolean name=\"SharedWithUser\" value=\"true\"/></WifiConfiguration></Network></NetworkList></WifiConfigStoreData>\n"
+}

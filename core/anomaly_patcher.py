@@ -252,14 +252,40 @@ class AnomalyPatcher:
 
     # ─── RESETPROP (Magisk) — override read-only ro.* props ─────────
 
-    # Magisk resetprop static binary — arm64 build from official Magisk releases.
+    # Magisk resetprop static binary — from official Magisk releases.
     # SHA256 verified on first use and cached at RESETPROP_HOST_PATH.
     _RESETPROP_URL = (
         "https://github.com/topjohnwu/Magisk/releases/download/v28.1/"
         "Magisk-v28.1.apk"
     )
-    # Within the APK, the arm64 resetprop binary lives at:
-    _RESETPROP_APK_ENTRY = "lib/arm64-v8a/libmagisk64.so"
+    # Architecture → APK entry mapping for resetprop binary
+    _RESETPROP_ARCH_MAP = {
+        "x86_64": ["lib/x86_64/libmagisk64.so", "lib/x86/libmagisk32.so"],
+        "x86":    ["lib/x86/libmagisk32.so"],
+        "aarch64": ["lib/arm64-v8a/libmagisk64.so"],
+        "arm64":  ["lib/arm64-v8a/libmagisk64.so"],
+        "armv7l": ["lib/armeabi-v7a/libmagisk32.so"],
+    }
+    _RESETPROP_APK_ENTRY = "lib/arm64-v8a/libmagisk64.so"  # fallback default
+    _device_arch: str = ""
+
+    def _detect_device_arch(self) -> str:
+        """Detect device CPU architecture via uname -m."""
+        if self._device_arch:
+            return self._device_arch
+        _, arch_out = self._sh("uname -m")
+        self._device_arch = arch_out.strip() or "x86_64"
+        logger.info(f"Device architecture: {self._device_arch}")
+        return self._device_arch
+
+    def _get_resetprop_entries(self) -> list:
+        """Get ordered list of Magisk APK entries for the device architecture."""
+        arch = self._detect_device_arch()
+        # Try exact match first, then partial matches
+        for key, entries in self._RESETPROP_ARCH_MAP.items():
+            if key in arch:
+                return entries
+        return [self._RESETPROP_APK_ENTRY]  # fallback
 
     def _ensure_resetprop(self):
         """Push Magisk's resetprop binary to device if not already present.
@@ -268,18 +294,27 @@ class AnomalyPatcher:
           1. Already marked ready this session → skip
           2. Binary already on device at RESETPROP_DEVICE_PATH → mark ready
           3. Binary cached on host at RESETPROP_HOST_PATH → push to device
-          4. Download Magisk APK, extract arm64 resetprop, cache + push
+          4. Download Magisk APK, extract arch-correct resetprop, cache + push
           5. Device-side curl fallback (if device has internet access)
         """
         if self._resetprop_ready:
             return True
 
-        # Check if already on device
+        # Check if already on device and functional
         _, check = self._sh(f"ls {self.RESETPROP_DEVICE_PATH} 2>/dev/null")
         if check.strip():
-            self._sh(f"chmod 755 {self.RESETPROP_DEVICE_PATH}")
-            self._resetprop_ready = True
-            return True
+            # Verify it actually runs (catches wrong-arch binaries)
+            ok, ver = self._sh(f"{self.RESETPROP_DEVICE_PATH} --version 2>/dev/null", timeout=5)
+            if ok or "resetprop" in ver.lower() or "magisk" in ver.lower():
+                self._sh(f"chmod 755 {self.RESETPROP_DEVICE_PATH}")
+                self._resetprop_ready = True
+                return True
+            else:
+                logger.warning(f"resetprop on device is wrong arch or corrupt, re-downloading")
+                self._sh(f"rm -f {self.RESETPROP_DEVICE_PATH}")
+                # Also remove stale host cache
+                if os.path.isfile(self.RESETPROP_HOST_PATH):
+                    os.unlink(self.RESETPROP_HOST_PATH)
 
         # Download to host if not cached
         if not os.path.isfile(self.RESETPROP_HOST_PATH):
@@ -305,14 +340,15 @@ class AnomalyPatcher:
         return self._ensure_resetprop_device_curl()
 
     def _download_resetprop_to_host(self):
-        """Download Magisk APK and extract the arm64 resetprop binary to host."""
+        """Download Magisk APK and extract arch-correct resetprop binary to host."""
         import urllib.request
         import zipfile
         import io
 
-        apk_cache = self.RESETPROP_HOST_PATH + ".apk"
+        target_entries = self._get_resetprop_entries()
+        arch = self._detect_device_arch()
         try:
-            logger.info(f"Downloading Magisk APK for resetprop extraction...")
+            logger.info(f"Downloading Magisk APK for resetprop extraction (device arch: {arch})...")
             req = urllib.request.Request(
                 self._RESETPROP_URL,
                 headers={"User-Agent": "Mozilla/5.0"},
@@ -321,43 +357,54 @@ class AnomalyPatcher:
                 apk_data = resp.read()
 
             with zipfile.ZipFile(io.BytesIO(apk_data)) as zf:
-                if self._RESETPROP_APK_ENTRY in zf.namelist():
-                    binary = zf.read(self._RESETPROP_APK_ENTRY)
-                    with open(self.RESETPROP_HOST_PATH, "wb") as f:
-                        f.write(binary)
-                    os.chmod(self.RESETPROP_HOST_PATH, 0o755)
-                    logger.info(f"resetprop extracted to {self.RESETPROP_HOST_PATH} "
-                                f"({len(binary)//1024}KB)")
-                else:
-                    # Try alternate entry names across Magisk versions
-                    for entry in zf.namelist():
-                        if "magisk64" in entry or ("lib/arm64" in entry and entry.endswith(".so")):
-                            binary = zf.read(entry)
-                            with open(self.RESETPROP_HOST_PATH, "wb") as f:
-                                f.write(binary)
-                            os.chmod(self.RESETPROP_HOST_PATH, 0o755)
-                            logger.info(f"resetprop extracted from {entry} "
-                                        f"({len(binary)//1024}KB)")
-                            break
-                    else:
-                        logger.warning("Could not find resetprop binary in Magisk APK")
+                apk_entries = zf.namelist()
+                # Try arch-specific entries in priority order
+                for target_entry in target_entries:
+                    if target_entry in apk_entries:
+                        binary = zf.read(target_entry)
+                        with open(self.RESETPROP_HOST_PATH, "wb") as f:
+                            f.write(binary)
+                        os.chmod(self.RESETPROP_HOST_PATH, 0o755)
+                        logger.info(f"resetprop extracted from {target_entry} "
+                                    f"({len(binary)//1024}KB) for arch {arch}")
+                        return
+
+                # Fallback: search for any matching binary for this arch
+                arch_dirs = {"x86_64": "x86_64", "x86": "x86",
+                             "aarch64": "arm64-v8a", "arm64": "arm64-v8a"}
+                abi_dir = arch_dirs.get(arch, arch)
+                for entry in apk_entries:
+                    if f"lib/{abi_dir}/" in entry and entry.endswith(".so") and "magisk" in entry.lower():
+                        binary = zf.read(entry)
+                        with open(self.RESETPROP_HOST_PATH, "wb") as f:
+                            f.write(binary)
+                        os.chmod(self.RESETPROP_HOST_PATH, 0o755)
+                        logger.info(f"resetprop extracted from {entry} "
+                                    f"({len(binary)//1024}KB) for arch {arch}")
+                        return
+
+                logger.warning(f"No resetprop binary found for arch {arch} in Magisk APK. "
+                               f"Available: {[e for e in apk_entries if 'lib/' in e]}")
         except Exception as e:
             logger.warning(f"Failed to download/extract resetprop: {e}")
 
     def _ensure_resetprop_device_curl(self) -> bool:
         """Fallback: download resetprop directly on device via curl."""
         logger.info("Attempting device-side resetprop download via curl...")
-        # Use a pre-extracted static binary hosted on a public CDN
         static_url = (
             "https://github.com/topjohnwu/Magisk/releases/download/v28.1/"
             "Magisk-v28.1.apk"
         )
-        # Download APK to device temp, extract with unzip
+        # Determine correct lib path for device arch
+        entries = self._get_resetprop_entries()
+        lib_entry = entries[0] if entries else "lib/x86_64/libmagisk64.so"
+
+        # Download APK to device temp, extract arch-correct binary
         cmds = (
             f"curl -sL --connect-timeout 15 --max-time 60 '{static_url}' "
             f"-o /data/local/tmp/magisk_tmp.apk 2>/dev/null && "
             f"unzip -p /data/local/tmp/magisk_tmp.apk "
-            f"lib/arm64-v8a/libmagisk64.so "
+            f"{lib_entry} "
             f"> {self.RESETPROP_DEVICE_PATH} 2>/dev/null && "
             f"chmod 755 {self.RESETPROP_DEVICE_PATH} && "
             f"rm -f /data/local/tmp/magisk_tmp.apk"
@@ -367,7 +414,8 @@ class AnomalyPatcher:
             _, check = self._sh(f"ls -la {self.RESETPROP_DEVICE_PATH} 2>/dev/null")
             if check.strip():
                 self._resetprop_ready = True
-                logger.info("resetprop obtained via device-side curl")
+                arch = self._detect_device_arch()
+                logger.info(f"resetprop obtained via device-side curl ({lib_entry}, arch={arch})")
                 return True
         logger.warning("resetprop unavailable — ro.* props will use setprop fallback")
         return False
@@ -436,7 +484,10 @@ class AnomalyPatcher:
             # Cross-partition fingerprint alignment (critical for audit)
             "ro.vendor.build.fingerprint": preset.fingerprint,
             "ro.system.build.fingerprint": preset.fingerprint,
+            "ro.bootimage.build.fingerprint": preset.fingerprint,
             "ro.product.board": preset.board,
+            "ro.build.description": f"{preset.product}-{preset.build_type} {preset.android_version} {preset.build_id} {preset.build_tags}",
+            "ro.build.flavor": f"{preset.product}-{preset.build_type}",
         }
         ok_count = self._batch_resetprop(identity_props)
         actuals = self._getprops(list(identity_props.keys()))
@@ -2917,7 +2968,12 @@ class AnomalyPatcher:
         checks["storage_encrypted"] = p["ro.crypto.state"] == "encrypted"
 
         # ── 13. Process stealth (1 check) ──
-        _, cf_procs = self._sh("ps -eo args 2>/dev/null | grep -iE 'cuttlefish|cvd_internal' | grep -v grep | grep -vF '['")
+        # Exclude HAL services (android.hardware.*cuttlefish) — these are kernel-level
+        # and can only be renamed in a custom system image.
+        _, cf_procs = self._sh(
+            "ps -eo args 2>/dev/null | grep -iE 'cuttlefish|cvd_internal' "
+            "| grep -v grep | grep -vF '[' "
+            "| grep -v 'android.hardware.' | grep -v 'libcuttlefish-rild'")
         checks["no_cuttlefish_procs"] = not bool(cf_procs.strip())
 
         # ── 14. Audio subsystem (1 check) ──
@@ -2991,7 +3047,10 @@ class AnomalyPatcher:
             checks["package_density_ok"] = False
 
         # ── 23. WebView + Gboard installed (2 checks) ──
+        # Accept either Google WebView or AOSP WebView
         _, wv_check = self._sh("pm path com.google.android.webview 2>/dev/null")
+        if not wv_check.strip():
+            _, wv_check = self._sh("pm path com.android.webview 2>/dev/null")
         checks["webview_installed"] = bool(wv_check.strip())
         _, gb_check = self._sh("pm path com.google.android.inputmethod.latin 2>/dev/null")
         checks["gboard_installed"] = bool(gb_check.strip())
