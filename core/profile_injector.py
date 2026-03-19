@@ -950,60 +950,113 @@ class ProfileInjector:
     # ─── CONTACTS ─────────────────────────────────────────────────────
 
     def _inject_contacts(self, contacts: List[Dict]):
-        """Inject contacts via Android ContentProvider."""
+        """Inject contacts via SQLite batch (pull contacts2.db, insert locally, push back).
+
+        Previous approach used per-contact ADB content-insert commands (~200ms each,
+        3-4 cmds per contact) which took 72+ seconds for 90 contacts and frequently
+        timed out the provision pipeline. SQLite batch completes in <2 seconds.
+        """
         if not contacts:
             return
 
-        count = 0
-        for contact in contacts:
-            name = contact.get("name", "")
-            phone = contact.get("phone", "")
-            email = contact.get("email", "")
+        REMOTE_DB = "/data/data/com.android.providers.contacts/databases/contacts2.db"
 
-            _adb_shell(self.target,
-                "content insert --uri content://com.android.contacts/raw_contacts "
-                "--bind account_type:s: --bind account_name:s:")
+        try:
+            import sqlite3 as _sqlite3
 
-            # Query the actual raw_contact_id (don't assume sequential)
-            rc_out = _adb_shell(self.target,
-                "content query --uri content://com.android.contacts/raw_contacts "
-                "--projection _id --sort '_id DESC LIMIT 1'")
-            rc_id = None
-            if rc_out:
-                import re as _re
-                m = _re.search(r'_id=(\d+)', rc_out)
-                if m:
-                    rc_id = m.group(1)
-            if not rc_id:
+            # Stop contacts provider to avoid SQLite lock / crash
+            _adb_shell(self.target, "am force-stop com.android.providers.contacts")
+            time.sleep(0.5)
+
+            with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+                tmp_path = tmp.name
+
+            # Pull existing DB
+            ok, _ = _adb(self.target, f"pull {REMOTE_DB} {tmp_path}", timeout=15)
+            if not ok:
+                # DB doesn't exist — create minimal schema
+                conn = _sqlite3.connect(tmp_path)
+                conn.executescript("""
+                    CREATE TABLE IF NOT EXISTS raw_contacts (
+                        _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        account_id INTEGER, version INTEGER DEFAULT 1,
+                        dirty INTEGER DEFAULT 0, display_name TEXT);
+                    CREATE TABLE IF NOT EXISTS mimetypes (
+                        _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        mimetype TEXT UNIQUE);
+                    INSERT OR IGNORE INTO mimetypes(mimetype) VALUES('vnd.android.cursor.item/name');
+                    INSERT OR IGNORE INTO mimetypes(mimetype) VALUES('vnd.android.cursor.item/phone_v2');
+                    INSERT OR IGNORE INTO mimetypes(mimetype) VALUES('vnd.android.cursor.item/email_v2');
+                    CREATE TABLE IF NOT EXISTS data (
+                        _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        raw_contact_id INTEGER, mimetype_id INTEGER,
+                        data1 TEXT, data2 TEXT);
+                """)
+                conn.commit()
+            else:
+                conn = _sqlite3.connect(tmp_path)
+
+            c = conn.cursor()
+
+            # Resolve mimetype IDs from the device's actual schema
+            c.execute("SELECT _id, mimetype FROM mimetypes WHERE mimetype IN "
+                      "('vnd.android.cursor.item/name','vnd.android.cursor.item/phone_v2',"
+                      "'vnd.android.cursor.item/email_v2')")
+            mime_map = {row[1]: row[0] for row in c.fetchall()}
+            name_mid = mime_map.get('vnd.android.cursor.item/name')
+            phone_mid = mime_map.get('vnd.android.cursor.item/phone_v2')
+            email_mid = mime_map.get('vnd.android.cursor.item/email_v2')
+
+            # Find next available raw_contact _id
+            c.execute("SELECT COALESCE(MAX(_id), 0) FROM raw_contacts")
+            next_rc_id = c.fetchone()[0] + 1
+
+            count = 0
+            for contact in contacts:
+                name = contact.get("name", "")
+                phone = contact.get("phone", "")
+                email = contact.get("email", "")
+                if not (name or phone or email):
+                    continue
+
+                rc_id = next_rc_id + count
+                c.execute("INSERT OR IGNORE INTO raw_contacts(_id, account_id, version, dirty, display_name) "
+                          "VALUES(?, NULL, 1, 0, ?)", (rc_id, name))
+
+                if name and name_mid:
+                    c.execute("INSERT INTO data(raw_contact_id, mimetype_id, data1) VALUES(?, ?, ?)",
+                              (rc_id, name_mid, name))
+                if phone and phone_mid:
+                    c.execute("INSERT INTO data(raw_contact_id, mimetype_id, data1, data2) VALUES(?, ?, ?, ?)",
+                              (rc_id, phone_mid, phone, "2"))
+                if email and email_mid:
+                    c.execute("INSERT INTO data(raw_contact_id, mimetype_id, data1, data2) VALUES(?, ?, ?, ?)",
+                              (rc_id, email_mid, email, "1"))
                 count += 1
-                rc_id = str(count)
 
-            if name:
-                safe_name = name.replace("'", "")
+            conn.commit()
+            conn.close()
+
+            if _adb_push(self.target, tmp_path, REMOTE_DB):
                 _adb_shell(self.target,
-                    f"content insert --uri content://com.android.contacts/data "
-                    f"--bind raw_contact_id:i:{rc_id} "
-                    f"--bind mimetype:s:vnd.android.cursor.item/name "
-                    f"--bind data1:s:'{safe_name}'")
+                    f"chown radio:radio {REMOTE_DB} 2>/dev/null; "
+                    f"chmod 660 {REMOTE_DB}; "
+                    f"restorecon {REMOTE_DB} 2>/dev/null")
 
-            if phone:
-                _adb_shell(self.target,
-                    f"content insert --uri content://com.android.contacts/data "
-                    f"--bind raw_contact_id:i:{rc_id} "
-                    f"--bind mimetype:s:vnd.android.cursor.item/phone_v2 "
-                    f"--bind data1:s:{phone} --bind data2:i:2")
+            os.unlink(tmp_path)
 
-            if email:
-                _adb_shell(self.target,
-                    f"content insert --uri content://com.android.contacts/data "
-                    f"--bind raw_contact_id:i:{rc_id} "
-                    f"--bind mimetype:s:vnd.android.cursor.item/email_v2 "
-                    f"--bind data1:s:{email} --bind data2:i:1")
+            # Restart contacts provider so it picks up the new data
+            _adb_shell(self.target,
+                "am broadcast -a android.intent.action.PROVIDER_CHANGED "
+                "-d content://com.android.contacts 2>/dev/null")
 
-            count += 1
+            self.result.contacts_injected = count
+            logger.info(f"  Contacts: {count} injected (sqlite3 batch)")
 
-        self.result.contacts_injected = count
-        logger.info(f"  Contacts: {count} injected")
+        except Exception as e:
+            self.result.errors.append(f"contacts: {e}")
+            self.result.contacts_injected = 0
+            logger.warning(f"  Contacts injection failed: {e}")
 
     # ─── CALL LOGS ────────────────────────────────────────────────────
 

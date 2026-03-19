@@ -1,9 +1,13 @@
 """
 Titan V11.3 — Stealth Router
-/api/stealth/* — Presets, carriers, locations, patch, audit
+/api/stealth/* — Presets, carriers, locations, patch, audit, repatch
 """
 
 import asyncio
+import logging
+import threading
+import time as _time_mod
+import uuid as _uuid
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -11,11 +15,14 @@ from pydantic import BaseModel
 from device_manager import DeviceManager
 from anomaly_patcher import AnomalyPatcher
 from device_presets import CARRIERS, LOCATIONS, list_preset_names
+from job_manager import JobManager
 from wallet_verifier import WalletVerifier
 
 router = APIRouter(prefix="/api/stealth", tags=["stealth"])
+logger = logging.getLogger("titan.stealth")
 
 dm: DeviceManager = None
+_patch_jobs = JobManager("stealth_patch", ttl=7200)
 
 
 def init(device_manager: DeviceManager):
@@ -45,14 +52,37 @@ async def list_locations():
     return {"locations": LOCATIONS}
 
 
-def _run_patch(adb_target: str, preset: str, carrier: str, location: str):
-    """Blocking helper — runs in thread to avoid blocking event loop."""
-    patcher = AnomalyPatcher(adb_target=adb_target)
-    return patcher.full_patch(preset, carrier, location)
+def _run_patch_job(job_id: str, adb_target: str, preset: str, carrier: str,
+                   location: str, device_id: str):
+    """Background worker for stealth patching (200-365s typical)."""
+    try:
+        patcher = AnomalyPatcher(adb_target=adb_target)
+        # Use quick_repatch if device was rebooted and config still exists
+        if patcher.needs_repatch():
+            logger.info(f"Patch job {job_id}: device rebooted, using quick_repatch")
+            _patch_jobs.update(job_id, {"step": "quick_repatch"})
+            report = patcher.quick_repatch()
+        else:
+            _patch_jobs.update(job_id, {"step": "full_patch"})
+            report = patcher.full_patch(preset, carrier, location)
+        _patch_jobs.update(job_id, {
+            "status": "completed",
+            "score": report.score, "passed": report.passed, "total": report.total,
+            "elapsed_sec": report.elapsed_sec,
+            "results": report.results[:40],
+            "completed_at": _time_mod.time(),
+        })
+        logger.info(f"Patch job {job_id} done: {report.passed}/{report.total} score={report.score}")
+    except Exception as e:
+        _patch_jobs.update(job_id, {
+            "status": "failed", "error": str(e), "completed_at": _time_mod.time()})
+        logger.exception(f"Patch job {job_id} failed")
 
 
 @router.post("/{device_id}/patch")
 async def patch_device(device_id: str, body: PatchDeviceBody):
+    """Start stealth patching as a background job. Poll /patch-status/{job_id} for progress.
+    Full patch takes 200-365s; quick repatch after reboot takes ~30s."""
     dev = dm.get_device(device_id)
     if not dev:
         raise HTTPException(404, "Device not found")
@@ -61,10 +91,50 @@ async def patch_device(device_id: str, body: PatchDeviceBody):
     carrier = body.carrier or dev.config.get("carrier", "tmobile_us")
     location = body.location or "nyc"
 
-    report = await asyncio.to_thread(_run_patch, dev.adb_target, preset, carrier, location)
-    dev.patch_result = report.to_dict()
-    dev.stealth_score = report.score
-    return report.to_dict()
+    job_id = str(_uuid.uuid4())[:8]
+    _patch_jobs.create(job_id, {
+        "status": "running", "device_id": device_id,
+        "preset": preset, "carrier": carrier, "location": location,
+        "step": "starting", "started_at": _time_mod.time(),
+    })
+
+    t = threading.Thread(
+        target=_run_patch_job,
+        args=(job_id, dev.adb_target, preset, carrier, location, device_id),
+        daemon=True,
+    )
+    t.start()
+
+    return {
+        "status": "started", "job_id": job_id,
+        "device_id": device_id,
+        "poll_url": f"/api/stealth/{device_id}/patch-status/{job_id}",
+    }
+
+
+@router.get("/{device_id}/patch-status/{job_id}")
+async def patch_status(device_id: str, job_id: str):
+    """Poll stealth patch job status."""
+    job = _patch_jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Patch job not found")
+    return job
+
+
+@router.get("/{device_id}/needs-repatch")
+async def needs_repatch(device_id: str):
+    """Check if device needs re-patching after reboot."""
+    dev = dm.get_device(device_id)
+    if not dev:
+        raise HTTPException(404, "Device not found")
+
+    def _check(adb_target: str):
+        patcher = AnomalyPatcher(adb_target=adb_target)
+        return {
+            "needs_repatch": patcher.needs_repatch(),
+            "config": patcher.get_saved_patch_config(),
+        }
+    return await asyncio.to_thread(_check, dev.adb_target)
 
 
 def _run_audit(adb_target: str):

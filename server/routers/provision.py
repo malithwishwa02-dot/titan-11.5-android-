@@ -160,11 +160,13 @@ class FullProvisionBody(BaseModel):
     cc_cardholder: str = ""
     preset: str = ""       # optional override; defaults to profile's device_model
     lockdown: bool = False
+    proxy_url: str = ""    # SOCKS5 proxy URL (e.g. socks5h://user:pass@host:port)
 
 
 def _run_provision_job(job_id: str, adb_target: str, profile_data: dict,
-                       card_data: Optional[dict], preset: str, lockdown: bool):
-    """Background worker: inject profile -> full_patch (26 phases) -> GSM verify -> trust score."""
+                       card_data: Optional[dict], preset: str, lockdown: bool,
+                       proxy_url: str = ""):
+    """Background worker: inject -> proxy -> patch -> GSM verify -> trust score."""
     from adb_utils import adb_shell
 
     try:
@@ -174,8 +176,21 @@ def _run_provision_job(job_id: str, adb_target: str, profile_data: dict,
         inj_result = injector.inject_full_profile(profile_data, card_data=card_data)
         _provision_mgr.update(job_id, {"inject_trust": inj_result.trust_score})
 
-        # -- Step 2: Full patch (26 phases, 103+ vectors)
-        _provision_mgr.update(job_id, {"step": "patch", "step_n": 2})
+        # -- Step 2: Proxy configuration (optional)
+        if proxy_url:
+            _provision_mgr.update(job_id, {"step": "proxy", "step_n": 2})
+            try:
+                from proxy_router import ProxyRouter
+                router_inst = ProxyRouter(adb_target=adb_target)
+                proxy_result = router_inst.configure_socks5(proxy_url)
+                _provision_mgr.update(job_id, {"proxy": proxy_result})
+                logger.info(f"Provision job {job_id}: proxy configured via {proxy_result.get('method', '?')}")
+            except Exception as pe:
+                logger.warning(f"Provision job {job_id}: proxy config failed: {pe}")
+                _provision_mgr.update(job_id, {"proxy": {"error": str(pe)}})
+
+        # -- Step 3: Full patch (26 phases, 103+ vectors)
+        _provision_mgr.update(job_id, {"step": "patch", "step_n": 3})
         from anomaly_patcher import AnomalyPatcher
         carrier  = profile_data.get("carrier",      "tmobile_us")
         location = profile_data.get("location",     "nyc")
@@ -187,8 +202,8 @@ def _run_provision_job(job_id: str, adb_target: str, profile_data: dict,
             "phases_total": report.total, "patch_results": report.results[:40],
         })
 
-        # -- Step 3: GSM verify
-        _provision_mgr.update(job_id, {"step": "gsm_verify", "step_n": 3})
+        # -- Step 4: GSM verify
+        _provision_mgr.update(job_id, {"step": "gsm_verify", "step_n": 4})
         gsm_state    = adb_shell(adb_target, "getprop gsm.sim.state")
         gsm_operator = adb_shell(adb_target, "getprop gsm.sim.operator.alpha")
         gsm_mcc_mnc  = adb_shell(adb_target, "getprop gsm.sim.operator.numeric")
@@ -205,8 +220,8 @@ def _run_provision_job(job_id: str, adb_target: str, profile_data: dict,
             "expected_carrier": carrier,
         }})
 
-        # -- Step 4: Trust score (canonical 14-check scorer)
-        _provision_mgr.update(job_id, {"step": "trust_score", "step_n": 4})
+        # -- Step 5: Trust score (canonical 14-check scorer)
+        _provision_mgr.update(job_id, {"step": "trust_score", "step_n": 5})
         from trust_scorer import compute_trust_score
         trust_result = compute_trust_score(adb_target)
         trust_score = trust_result["trust_score"]
@@ -214,7 +229,7 @@ def _run_provision_job(job_id: str, adb_target: str, profile_data: dict,
         _provision_mgr.update(job_id, {
             "status": "completed",
             "step": "done",
-            "step_n": 4,
+            "step_n": 5,
             "trust_score": trust_score,
             "trust_checks": trust_result["checks"],
             "completed_at": _time_mod.time(),
@@ -258,7 +273,7 @@ async def genesis_full_provision(device_id: str, body: FullProvisionBody):
     t = threading.Thread(
         target=_run_provision_job,
         args=(job_id, dev.adb_target, profile_data, card_data,
-              body.preset, body.lockdown),
+              body.preset, body.lockdown, body.proxy_url),
         daemon=True,
     )
     t.start()
@@ -294,34 +309,59 @@ class AgeDeviceBody(BaseModel):
     persona: str = ""
 
 
-@router.post("/age-device/{device_id}")
-async def genesis_age_device(device_id: str, body: AgeDeviceBody):
-    """Run anomaly-patching phases on the device.
-
-    NOTE: This endpoint runs ONLY the stealth-patching stage (26 phases,
-    103+ detection vectors). For a full aging pipeline (forge + inject +
-    patch + warmup + verify), use the /training/workflow/start endpoint
-    or the full-provision endpoint instead.
-    """
-    dev = dm.get_device(device_id) if dm else None
-
+def _run_age_job(job_id: str, adb_target: str, preset: str, carrier: str,
+                 location: str, device_id: str):
+    """Background worker for age-device (200-365s typical)."""
     try:
         from anomaly_patcher import AnomalyPatcher
-        adb_target = "127.0.0.1:6520"
-        if dev:
-            adb_target = dev.adb_target
-
         patcher = AnomalyPatcher(adb_target=adb_target)
-        fn = functools.partial(
-            patcher.full_patch,
-            preset_name=body.preset,
-            carrier_name=body.carrier,
-            location_name=body.location,
-        )
-        report = await asyncio.wait_for(asyncio.to_thread(fn), timeout=120.0)
-        return {"status": "complete", "device_id": device_id, "phases": len(report.results), "report": report.__dict__}
-    except asyncio.TimeoutError:
-        return {"status": "timeout", "device_id": device_id}
-    except (ImportError, Exception) as e:
-        logger.error("age-device error: %s", e)
-        return {"status": "error", "error": str(e), "device_id": device_id}
+        # Use quick_repatch if device was rebooted
+        if patcher.needs_repatch():
+            _provision_mgr.update(job_id, {"step": "quick_repatch"})
+            report = patcher.quick_repatch()
+        else:
+            _provision_mgr.update(job_id, {"step": "full_patch"})
+            report = patcher.full_patch(preset, carrier, location)
+        _provision_mgr.update(job_id, {
+            "status": "completed", "step": "done",
+            "score": report.score, "passed": report.passed, "total": report.total,
+            "elapsed_sec": report.elapsed_sec,
+            "phases": len(report.results),
+            "completed_at": _time_mod.time(),
+        })
+        logger.info(f"Age job {job_id} done: {report.passed}/{report.total} score={report.score}")
+    except Exception as e:
+        _provision_mgr.update(job_id, {
+            "status": "failed", "error": str(e), "completed_at": _time_mod.time()})
+        logger.exception(f"Age job {job_id} failed")
+
+
+@router.post("/age-device/{device_id}")
+async def genesis_age_device(device_id: str, body: AgeDeviceBody):
+    """Run anomaly-patching phases on the device (background job).
+
+    Returns a job_id; poll /provision-status/{job_id} for progress.
+    Full patch takes 200-365s; quick repatch after reboot takes ~30s.
+    """
+    dev = dm.get_device(device_id) if dm else None
+    adb_target = dev.adb_target if dev else "127.0.0.1:6520"
+
+    job_id = str(_uuid.uuid4())[:8]
+    _provision_mgr.create(job_id, {
+        "status": "running", "type": "age_device",
+        "device_id": device_id, "step": "starting",
+        "started_at": _time_mod.time(),
+    })
+
+    t = threading.Thread(
+        target=_run_age_job,
+        args=(job_id, adb_target, body.preset, body.carrier, body.location, device_id),
+        daemon=True,
+    )
+    t.start()
+
+    return {
+        "status": "started", "job_id": job_id,
+        "device_id": device_id,
+        "poll_url": f"/api/genesis/provision-status/{job_id}",
+    }

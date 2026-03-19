@@ -2840,6 +2840,162 @@ class AnomalyPatcher:
         slowest = sorted(self._phase_timings.items(), key=lambda x: x[1], reverse=True)[:5]
         for name, secs in slowest:
             logger.info(f"  slowest: {name} = {secs:.2f}s")
+
+        # Save patch config for quick_repatch() after reboot
+        try:
+            self._save_patch_config(preset_name, carrier_name, location_name, lockdown, age_days)
+        except Exception as e:
+            logger.warning(f"Failed to save patch config: {e}")
+
+        return report
+
+    # ═══════════════════════════════════════════════════════════════════
+    # QUICK RE-PATCH — fast reapply after reboot (skips media generation)
+    # ═══════════════════════════════════════════════════════════════════
+
+    PATCH_CONFIG_PATH = "/data/local/tmp/titan_patch_config.json"
+
+    def _save_patch_config(self, preset_name: str, carrier_name: str,
+                           location_name: str, lockdown: bool, age_days: int):
+        """Persist patch configuration so quick_repatch() can re-apply after reboot."""
+        import json as _json
+        config = _json.dumps({
+            "preset": preset_name, "carrier": carrier_name,
+            "location": location_name, "lockdown": lockdown,
+            "age_days": age_days, "version": "11.3.5",
+        })
+        self._sh(f"echo '{config}' > {self.PATCH_CONFIG_PATH}", timeout=5)
+
+    def get_saved_patch_config(self) -> Optional[dict]:
+        """Read saved patch config from device. Returns None if not found."""
+        import json as _json
+        ok, out = self._sh(f"cat {self.PATCH_CONFIG_PATH} 2>/dev/null")
+        if ok and out.strip().startswith("{"):
+            try:
+                return _json.loads(out.strip())
+            except Exception:
+                pass
+        return None
+
+    def needs_repatch(self) -> bool:
+        """Check if device has been rebooted and lost resetprop patches.
+        Returns True if patch config exists but identity props have reverted."""
+        config = self.get_saved_patch_config()
+        if not config:
+            return False
+        # If ro.product.model still shows Cuttlefish, props have reverted
+        model = self._getprop("ro.product.model")
+        return "Cuttlefish" in model or "cutf" in model.lower()
+
+    def quick_repatch(self) -> 'PatchReport':
+        """Fast re-apply of stealth patches after reboot (~30s vs 200-365s).
+
+        Skips Phase 9 (media history) and Phase 28 (media storage) since those
+        files persist across reboots on /sdcard and /data. Only re-applies:
+        identity props, anti-emulator, build verification, RASP, GPU, battery,
+        location, network, GMS, sensors, bluetooth, proc stealth, camera, NFC,
+        WiFi, SELinux, encryption, process stealth, audio, input, kernel,
+        persistence, OEM props, and default config.
+        """
+        config = self.get_saved_patch_config()
+        if not config:
+            raise ValueError("No saved patch config found on device. Run full_patch() first.")
+
+        preset_name = config["preset"]
+        carrier_name = config["carrier"]
+        location_name = config["location"]
+        lockdown = config.get("lockdown", False)
+        age_days = config.get("age_days", 90)
+
+        t_start = time.time()
+        self._results = []
+        self._phase_timings = {}
+        self._tmpfs_ready = False
+        preset = get_preset(preset_name)
+        carrier = CARRIERS.get(carrier_name)
+        location = LOCATIONS.get(location_name)
+        if not carrier or not location:
+            raise ValueError(f"Invalid carrier/location: {carrier_name}/{location_name}")
+        locale = location.get("locale", "en-US")
+
+        # All phases EXCEPT 09_media_history and 28_media_storage
+        with self._timed_phase("01_device_identity"):
+            self._patch_device_identity(preset)
+        with self._timed_phase("02_telephony"):
+            self._patch_telephony(preset, carrier)
+        with self._timed_phase("03_anti_emulator"):
+            self._patch_anti_emulator()
+        with self._timed_phase("04_build_verification"):
+            self._patch_build_verification()
+        with self._timed_phase("05_rasp"):
+            self._patch_rasp()
+        with self._timed_phase("06_gpu"):
+            self._patch_gpu(preset)
+        with self._timed_phase("07_battery"):
+            self._patch_battery(age_days=age_days)
+        with self._timed_phase("08_location"):
+            self._patch_location(location, locale)
+        # SKIP Phase 9 (media history) — files persist on /sdcard
+        with self._timed_phase("10_network"):
+            self._patch_network(preset)
+        with self._timed_phase("11a_gms"):
+            self._patch_gms(preset)
+        with self._timed_phase("11b_keybox"):
+            self._patch_keybox()
+        with self._timed_phase("11c_gsf_alignment"):
+            self._patch_gsf_alignment(preset)
+        with self._timed_phase("12_sensors"):
+            self._patch_sensors(preset)
+        with self._timed_phase("13_bluetooth"):
+            self._patch_bluetooth()
+        with self._timed_phase("14_proc_info"):
+            self._patch_proc_info(preset)
+        with self._timed_phase("15_camera"):
+            self._patch_camera_info(preset)
+        with self._timed_phase("16_nfc_storage"):
+            self._patch_nfc_storage(preset)
+        with self._timed_phase("17a_wifi_scan"):
+            self._patch_wifi_scan(location_name=location_name)
+        with self._timed_phase("17b_wifi_config"):
+            self._patch_wifi_config(location_name=location_name)
+        with self._timed_phase("18_selinux"):
+            self._patch_selinux_accessibility()
+        with self._timed_phase("19_storage_encryption"):
+            self._patch_storage_encryption()
+        with self._timed_phase("20_process_stealth"):
+            self._patch_deep_process_stealth()
+        with self._timed_phase("21_audio"):
+            self._patch_audio_subsystem(preset)
+        with self._timed_phase("22_input_behavior"):
+            self._patch_input_behavior()
+        with self._timed_phase("23_kernel_hardening"):
+            self._patch_kernel_hardening()
+        with self._timed_phase("24_persistence"):
+            self._persist_patches(preset, carrier, location, locale)
+        with self._timed_phase("25_oem_props"):
+            self._patch_oem_props(preset)
+        with self._timed_phase("26_default_config"):
+            self._patch_default_config(preset, location)
+        # SKIP Phase 27 (usagestats) — DB persists on /data
+        # SKIP Phase 28 (media storage) — files persist on /sdcard
+        if lockdown:
+            with self._timed_phase("29_adb_concealment"):
+                self._patch_adb_concealment()
+
+        elapsed = time.time() - t_start
+        passed = sum(1 for r in self._results if r.success)
+        total = len(self._results)
+        score = int((passed / total) * 100) if total > 0 else 0
+
+        report = PatchReport(
+            preset=preset_name, carrier=carrier_name, location=location_name,
+            total=total, passed=passed, failed=total - passed,
+            score=score,
+            results=[{"name": r.name, "ok": r.success, "detail": r.detail} for r in self._results],
+            elapsed_sec=elapsed,
+            phase_timings=dict(self._phase_timings),
+        )
+        logger.info(f"Quick repatch complete: {passed}/{total} passed, score={score}, elapsed={elapsed:.1f}s")
         return report
 
     # ═══════════════════════════════════════════════════════════════════

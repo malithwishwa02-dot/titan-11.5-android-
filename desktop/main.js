@@ -8,7 +8,9 @@ const http = require('http');
 const IS_PACKAGED = app.isPackaged;
 const RESOURCES = IS_PACKAGED ? process.resourcesPath : path.resolve(__dirname, '..');
 const USER_DATA = app.getPath('userData');        // ~/.config/titan-console
-const TITAN_DATA = path.join(USER_DATA, 'data');
+const TITAN_DATA = IS_PACKAGED
+  ? (process.env.TITAN_DATA || '/opt/titan/data')
+  : path.join(USER_DATA, 'data');
 const VENV_DIR = path.join(USER_DATA, 'venv');
 const SERVER_DIR = path.join(RESOURCES, 'server');
 const CORE_DIR = path.join(RESOURCES, 'core');
@@ -17,6 +19,11 @@ const SETUP_DONE = path.join(USER_DATA, '.setup-done');
 // ─── Config ───────────────────────────────────────────────────────────
 const API_PORT = 8080;
 const API_URL = `http://127.0.0.1:${API_PORT}`;
+
+// Chromium flags for headless / xRDP / GPU-less environments
+app.commandLine.appendSwitch('no-sandbox');
+app.commandLine.appendSwitch('disable-gpu');
+app.commandLine.appendSwitch('disable-software-rasterizer');
 
 let mainWindow = null;
 let setupWindow = null;
@@ -127,7 +134,7 @@ function startServer() {
         ...process.env,
         ...projEnv,
         ...dotEnvVars,
-        PYTHONPATH: [SERVER_DIR, CORE_DIR, '/opt/titan/core'].join(':'),
+        PYTHONPATH: [SERVER_DIR, CORE_DIR, '/opt/titan/core', '/opt/titan-v11.3-device/core', '/opt/titan-v11.3-device/server'].filter(Boolean).join(':'),
         TITAN_DATA,
         TITAN_API_PORT: String(API_PORT),
         CVD_BIN_DIR: dotEnvVars.CVD_BIN_DIR || process.env.CVD_BIN_DIR || '/opt/titan/cuttlefish/cf/bin',
@@ -257,7 +264,7 @@ ipcMain.handle('setup:run', async (event) => {
 
     // 5. Mark setup as done
     fs.writeFileSync(SETUP_DONE, JSON.stringify({
-      version: '11.3.2',
+      version: '11.3.5',
       python: python.version,
       timestamp: new Date().toISOString(),
     }));

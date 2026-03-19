@@ -412,6 +412,18 @@ class GAppsBootstrap:
             else:
                 err = out.strip().split("\n")[-1] if out else "unknown"
                 logger.error(f"  FAIL {name} ({pkg}) — {err}")
+                # If primary install failed and alt package exists, try it immediately
+                if alt_pkg and not self._is_installed(alt_pkg):
+                    alt_entry = {"globs": entry.get("alt_globs", []), "pkg": alt_pkg}
+                    alt_apk = self._find_apk(alt_entry)
+                    if alt_apk:
+                        logger.info(f"  Trying alt: {alt_pkg} ({alt_apk.name})")
+                        alt_ok, alt_out = self._install_apk(alt_apk)
+                        if alt_ok and "Success" in alt_out:
+                            logger.info(f"  OK {name} via alt ({alt_pkg})")
+                            result.installed.append(alt_pkg)
+                            time.sleep(1)
+                            continue
                 result.failed.append(pkg)
                 result.errors.append(f"{pkg}: {err}")
             time.sleep(1)
