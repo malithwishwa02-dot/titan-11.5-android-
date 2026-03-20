@@ -53,6 +53,7 @@ from device_presets import (
     get_preset,
 )
 from exceptions import PatchPhaseError, ResetpropError
+from keybox_manager import KeyboxManager, KeyboxHealth
 
 logger = logging.getLogger("titan.patcher")
 
@@ -1352,86 +1353,50 @@ class AnomalyPatcher:
         logger.info("  TEESimulator: Configured (EC_P384, STRONG_BOX)")
         return "teesim"
 
-    def _generate_test_keybox(self, keybox_path: str):
-        """Generate a self-signed test keybox.xml for local audit compliance.
-        NOTE: This won't pass real Play Integrity but satisfies local checks."""
-        logger.info("  Keybox: Generating self-signed test keybox")
-        import base64
-        # Generate a minimal keybox XML with random key material
-        key_material = base64.b64encode(secrets.token_bytes(256)).decode()
-        cert_material = base64.b64encode(secrets.token_bytes(512)).decode()
-        keybox_xml = f'''<?xml version="1.0"?>
-<AndroidAttestation>
-  <NumberOfKeyboxes>1</NumberOfKeyboxes>
-  <Keybox DeviceID="titan-test-device">
-    <Key algorithm="ecdsa">
-      <PrivateKey format="pem">
-{key_material}
-      </PrivateKey>
-      <CertificateChain>
-        <NumberOfCertificates>1</NumberOfCertificates>
-        <Certificate format="pem">
-{cert_material}
-        </Certificate>
-      </CertificateChain>
-    </Key>
-  </Keybox>
-</AndroidAttestation>'''
-        os.makedirs(os.path.dirname(keybox_path), exist_ok=True)
-        with open(keybox_path, "w") as f:
-            f.write(keybox_xml)
-        logger.info(f"  Keybox: Test keybox written to {keybox_path}")
-
     def _inject_static_keybox(self) -> str:
-        """Inject static hardware keybox.xml (legacy fallback).
+        """Inject static hardware keybox.xml via centralized KeyboxManager.
+
+        Delegates to KeyboxManager.install_keybox() which:
+          - Validates keybox structure (detects placeholder vs real)
+          - Pushes to all 3 device paths (tricky_store, PIF, tricky_store module)
+          - Sets persist.titan.keybox.type to 'real' or 'placeholder'
+            (prevents downstream deception in wallet_verifier/trust_scorer)
+          - Generates marked placeholder if no keybox file exists
 
         WARNING: Google aggressively revokes leaked keyboxes. The mandatory
         RKP migration (ECDSA P-384 root, April 2026) means static keyboxes
         from pre-RKP devices will systematically fail Play Integrity for
         modern device profiles (Android 13+). Prefer RKA or TEESimulator.
         """
-        logger.info("  Keybox: Attempting static keybox injection (legacy)")
+        logger.info("  Keybox: Attempting static keybox injection (via KeyboxManager)")
 
-        keybox_path = os.environ.get("TITAN_KEYBOX_PATH", "/opt/titan/data/keybox.xml")
-        if not os.path.isfile(keybox_path):
-            # Generate a test keybox for local audit compliance
-            self._generate_test_keybox(keybox_path)
+        kb_mgr = KeyboxManager()
+        keybox_path = kb_mgr.find_keybox()
 
-        with open(keybox_path, "rb") as f:
-            kb_hash = hashlib.sha256(f.read()).hexdigest()[:16]
+        if not keybox_path:
+            # Generate a marked placeholder for structural compliance
+            keybox_path = os.environ.get("TITAN_KEYBOX_PATH", "/opt/titan/data/keybox.xml")
+            kb_mgr.generate_placeholder(keybox_path)
+            logger.warning("  Keybox: Generated placeholder — won't pass real Play Integrity")
 
-        device_paths = [
-            "/data/adb/tricky_store/keybox.xml",
-            "/data/adb/modules/playintegrityfix/keybox.xml",
-            "/data/adb/modules/tricky_store/keybox.xml",
-        ]
+        result = kb_mgr.install_keybox(keybox_path, self.target)
+        kb_type = result.get("kb_type", "none")
+        pushed = result.get("paths_pushed", 0)
+        kb_hash = result.get("hash", "")
 
-        pushed = 0
-        for dp in device_paths:
-            parent = dp.rsplit("/", 1)[0]
-            self._sh(f"mkdir -p {parent}")
-            try:
-                r = subprocess.run(
-                    ["adb", "-s", self.target, "push", keybox_path, dp],
-                    capture_output=True, text=True, timeout=15,
-                )
-                if r.returncode == 0:
-                    pushed += 1
-                    self._sh(f"chmod 600 {dp}")
-            except Exception as e:
-                logger.debug(f"Keybox push to {dp} failed: {e}")
-
+        # Also set attestation strategy prop
         self._batch_setprop({
-            "persist.titan.keybox.loaded": "1" if pushed > 0 else "0",
-            "persist.titan.keybox.hash": kb_hash,
-            "persist.titan.keybox.paths": str(pushed),
             "persist.titan.attestation.strategy": "static_keybox",
         })
 
-        success = pushed > 0
-        self._record("keybox_loaded", success, f"hash={kb_hash}, paths={pushed}/{len(device_paths)}")
-        if success:
-            logger.info(f"  Keybox injected: hash={kb_hash}, {pushed} paths (LEGACY — prefer RKA)")
+        success = result.get("ok", False)
+        self._record("keybox_loaded", success,
+                     f"type={kb_type}, hash={kb_hash}, paths={pushed}")
+        if success and kb_type == "placeholder":
+            logger.warning(f"  Placeholder keybox installed ({pushed} paths) — "
+                           "won't pass real Play Integrity")
+        elif success:
+            logger.info(f"  Real keybox injected: hash={kb_hash}, {pushed} paths")
         else:
             logger.error("  Keybox push failed to all paths")
         return "static_keybox" if success else "none"
@@ -2213,10 +2178,17 @@ class AnomalyPatcher:
             "# Resetprop for ro.* overrides — auto-download if missing",
             f"RP={self.RESETPROP_DEVICE_PATH}",
             "if [ ! -x $RP ]; then",
-            "  # Try curl from GitHub Magisk release",
+            "  # Detect arch and download correct Magisk binary",
+            "  DARCH=$(uname -m)",
+            "  case $DARCH in",
+            "    x86_64) LIB_ENTRY=lib/x86_64/libmagisk64.so ;;",
+            "    x86)    LIB_ENTRY=lib/x86/libmagisk32.so ;;",
+            "    aarch64|arm64) LIB_ENTRY=lib/arm64-v8a/libmagisk64.so ;;",
+            "    armv7*) LIB_ENTRY=lib/armeabi-v7a/libmagisk32.so ;;",
+            "    *)      LIB_ENTRY=lib/x86_64/libmagisk64.so ;;",
+            "  esac",
             "  curl -sL https://github.com/topjohnwu/Magisk/releases/download/v28.1/Magisk-v28.1.apk -o /data/local/tmp/magisk.apk 2>/dev/null &&",
-            "  unzip -jo /data/local/tmp/magisk.apk lib/arm64-v8a/libmagisk64.so -d /data/local/tmp/ 2>/dev/null &&",
-            "  mv /data/local/tmp/libmagisk64.so $RP 2>/dev/null &&",
+            "  unzip -p /data/local/tmp/magisk.apk $LIB_ENTRY > $RP 2>/dev/null &&",
             "  chmod 755 $RP && rm -f /data/local/tmp/magisk.apk",
             "fi",
             "[ -x $RP ] && {",

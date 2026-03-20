@@ -277,15 +277,31 @@ class WalletVerifier:
     def _check_keybox(self) -> WalletCheck:
         loaded = self._sh("getprop persist.titan.keybox.loaded")
         kb_hash = self._sh("getprop persist.titan.keybox.hash")
-        ok = loaded.strip() == "1"
+        kb_type = self._sh("getprop persist.titan.keybox.type").strip()
+        is_loaded = loaded.strip() == "1"
+        # Placeholder keyboxes won't pass real Play Integrity
+        ok = is_loaded and kb_type == "real"
+        if is_loaded and kb_type == "placeholder":
+            detail = f"Placeholder keybox loaded (hash={kb_hash.strip()[:12]}) — won't pass NFC/Strong"
+            remediation = (
+                "Replace placeholder with a real keybox at /opt/titan/data/keybox.xml "
+                "and run 'titan-keybox rotate --device <serial>'. "
+                "Placeholder passes DEVICE tier only; Google Pay NFC requires real keybox."
+            )
+        elif ok:
+            detail = f"Real keybox loaded (hash={kb_hash.strip()[:12]})"
+            remediation = ""
+        else:
+            detail = "Keybox NOT loaded"
+            remediation = (
+                "Place keybox.xml at /opt/titan/data/keybox.xml and re-run anomaly patcher. "
+                "Without keybox, Play Integrity Strong will fail and Google Pay NFC won't work."
+            )
         return WalletCheck(
             name="keybox_loaded",
             passed=ok,
-            detail=f"Keybox loaded (hash={kb_hash.strip()[:12]})" if ok else "Keybox NOT loaded",
-            remediation="" if ok else (
-                "Place keybox.xml at /opt/titan/data/keybox.xml and re-run anomaly patcher. "
-                "Without keybox, Play Integrity Strong will fail and Google Pay NFC won't work."
-            ),
+            detail=detail,
+            remediation=remediation,
         )
 
     def _check_gsf_alignment(self) -> WalletCheck:

@@ -134,10 +134,14 @@ def compute_trust_score(adb_target: str, profile_data: dict = None) -> Dict[str,
     gms_wallet = _adb_or_empty("cat /data/data/com.google.android.gms/shared_prefs/wallet_instrument_prefs.xml 2>/dev/null")
     checks["gms_billing_sync"] = {"present": "wallet_setup_complete" in (gms_wallet or ""), "weight": 0}
 
-    # 6d. Keybox loaded (informational, weight: 0)
+    # 6d. Keybox loaded (weight: 8 — critical for NFC wallet ~72% success)
     keybox_prop = _adb_or_empty("getprop persist.titan.keybox.loaded")
     has_keybox = keybox_prop.strip() == "1" if keybox_prop else False
-    checks["keybox"] = {"present": has_keybox, "loaded": has_keybox, "weight": 0}
+    kb_type = (_adb_or_empty("getprop persist.titan.keybox.type") or "").strip()
+    kb_real = has_keybox and kb_type == "real"
+    checks["keybox"] = {"present": has_keybox, "loaded": has_keybox, "type": kb_type or "none", "real": kb_real, "weight": 8}
+    if kb_real:
+        score += 8
 
     # 7. Play Store library (weight: 8)
     has_library = bool(_adb_or_empty("ls /data/data/com.android.vending/databases/library.db 2>/dev/null"))
