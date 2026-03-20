@@ -174,6 +174,11 @@ class GAppsBootstrap:
         out = self._shell(f"pm list packages {pkg} 2>/dev/null")
         return f"package:{pkg}" in out
 
+    def _is_gms_prebaked(self) -> bool:
+        """Check if GMS was injected into /system/priv-app/ at image build time."""
+        out = self._shell("ls /system/priv-app/GmsCore/ 2>/dev/null || ls /system/priv-app/PrebuiltGmsCore/ 2>/dev/null")
+        return "GmsCore" in out or ".apk" in out
+
     def _get_installed_packages(self) -> List[str]:
         out = self._shell("pm list packages 2>/dev/null")
         return [l.replace("package:", "").strip()
@@ -361,6 +366,31 @@ class GAppsBootstrap:
 
         result.total_packages_before = len(self._get_installed_packages())
         logger.info(f"Packages before: {result.total_packages_before}")
+
+        # Fast-path: check if GMS is pre-baked into system image (MindTheGapps)
+        if self._is_gms_prebaked():
+            logger.info("GMS pre-baked in system image — verifying essential packages")
+            all_present = True
+            entries = [e for e in ESSENTIAL_APKS if e["required"]]
+            for entry in entries:
+                pkg = entry["pkg"]
+                if self._is_installed(pkg):
+                    result.already_installed.append(pkg)
+                else:
+                    alt_pkg = entry.get("alt_pkg")
+                    if alt_pkg and self._is_installed(alt_pkg):
+                        result.already_installed.append(alt_pkg)
+                    else:
+                        all_present = False
+            if all_present:
+                logger.info(f"All {len(result.already_installed)} essential packages present — skipping bootstrap")
+                result.gms_ready = self._is_installed("com.google.android.gms")
+                result.play_store_ready = self._is_installed("com.android.vending")
+                result.chrome_ready = self._is_installed("com.android.chrome")
+                result.wallet_ready = self._is_installed("com.google.android.apps.walletnfcrel")
+                result.total_packages_after = len(self._get_installed_packages())
+                return result
+            logger.info("Some packages missing despite pre-baked image — continuing with install")
 
         # Phase 0: Try restoring previously-uninstalled GApps first (fastest path)
         restored = self.restore_gapps()

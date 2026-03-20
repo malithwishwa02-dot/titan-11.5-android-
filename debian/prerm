@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Titan-X — Pre-removal script (dpkg prerm)
+# Stops services before files are removed.
+set -e
+
+case "${1:-remove}" in
+    remove|upgrade|deconfigure)
+        echo "[titan-x] Stopping services..."
+        systemctl stop titan-api 2>/dev/null || true
+        systemctl stop titan-scrcpy 2>/dev/null || true
+        systemctl stop titan-nginx 2>/dev/null || true
+        ;;
+    failed-upgrade)
+        ;;
+    *)
+        ;;
+esac

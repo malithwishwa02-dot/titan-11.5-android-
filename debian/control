@@ -1,0 +1,47 @@
+Package: titan-x
+Version: 12.0.0
+Section: misc
+Priority: optional
+Architecture: amd64
+Maintainer: Titan <dev@titan.local>
+Depends: python3 (>= 3.10),
+         python3-venv,
+         python3-pip,
+         adb,
+         qemu-kvm,
+         bridge-utils,
+         curl,
+         wget,
+         jq,
+         sqlite3,
+         ffmpeg,
+         openssl,
+         docker.io | docker-ce,
+         unzip,
+         android-sdk-libsparse-utils,
+         e2fsprogs
+Recommends: v4l2loopback-dkms,
+            v4l2loopback-utils,
+            linux-modules-extra-generic,
+            autossh,
+            nginx
+Suggests: ollama
+Installed-Size: 3200000
+Homepage: https://github.com/titan/titan-x
+Description: Titan-X Antidetect Android Device Platform (Cuttlefish KVM)
+ Production-grade KVM-based Android 14 virtualization platform running
+ Google Cuttlefish VMs with 103+ anti-detect vectors, AI-driven device
+ automation, profile forging, wallet provisioning, and Play Integrity
+ defense via Magisk/TrickyStore/PlayIntegrityFork.
+ .
+ Features:
+  - Up to 8 concurrent Android 14 VMs (Cuttlefish KVM)
+  - 28-phase anomaly patcher (103+ stealth vectors)
+  - Genesis profile forge (contacts, SMS, call logs, cookies, gallery)
+  - Wallet provisioning (Google Pay tap-and-pay token injection)
+  - AI agent automation (Ollama LLM See→Think→Act loop)
+  - Real-time screen streaming (ws-scrcpy H.264 + JPEG fallback)
+  - Play Integrity defense (TrickyStore + PIF Zygisk modules)
+  - Keybox lifecycle management (validate, rotate, revocation check)
+  - FastAPI server with 18 routers
+  - Web console + optional Electron desktop UI

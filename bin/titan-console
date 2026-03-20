@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# ═══════════════════════════════════════════════════════════════════════
+# titan-console — Launch Titan-X Web Console
+#
+# Opens the Titan-X console in the default browser, or starts Electron
+# if available and --electron flag is passed.
+#
+# Usage:
+#   titan-console                # Open in default browser
+#   titan-console --electron     # Launch Electron desktop app
+#   titan-console --port 8080    # Custom API port
+# ═══════════════════════════════════════════════════════════════════════
+set -euo pipefail
+
+TITAN_DIR="${TITAN_DIR:-/opt/titan-x}"
+API_PORT="${TITAN_API_PORT:-8080}"
+CONSOLE_URL="https://localhost:${API_PORT}"
+USE_ELECTRON=0
+
+# Source .env if available
+[[ -f "${TITAN_DIR}/.env" ]] && set -a && source "${TITAN_DIR}/.env" && set +a
+
+for arg in "$@"; do
+    case "$arg" in
+        --electron)      USE_ELECTRON=1 ;;
+        --port)          shift; API_PORT="${1:-8080}"; CONSOLE_URL="https://localhost:${API_PORT}" ;;
+        --port=*)        API_PORT="${arg#*=}"; CONSOLE_URL="https://localhost:${API_PORT}" ;;
+        --help|-h)
+            echo "Usage: titan-console [--electron] [--port PORT]"
+            echo "  --electron   Launch Electron desktop app instead of browser"
+            echo "  --port PORT  Override API port (default: 8080)"
+            exit 0
+            ;;
+    esac
+done
+
+# Check API is running
+if ! curl -sk --connect-timeout 2 "${CONSOLE_URL}/health" >/dev/null 2>&1; then
+    echo "Titan-X API is not running on port ${API_PORT}."
+    echo "Start it with: sudo systemctl start titan-api"
+    echo "Or:            titan-x start"
+    exit 1
+fi
+
+if [[ $USE_ELECTRON -eq 1 ]]; then
+    # Electron mode
+    ELECTRON_DIR="${TITAN_DIR}/desktop"
+    if [[ ! -f "${ELECTRON_DIR}/main.js" ]]; then
+        echo "Electron app not found at ${ELECTRON_DIR}"
+        echo "Falling back to browser..."
+        USE_ELECTRON=0
+    else
+        # Check for electron binary
+        if command -v electron >/dev/null 2>&1; then
+            ELECTRON_BIN="electron"
+        elif command -v npx >/dev/null 2>&1; then
+            ELECTRON_BIN="npx electron"
+        else
+            echo "Electron not installed. Install with: npm install -g electron"
+            echo "Falling back to browser..."
+            USE_ELECTRON=0
+        fi
+
+        if [[ $USE_ELECTRON -eq 1 ]]; then
+            export TITAN_API_PORT="${API_PORT}"
+            exec $ELECTRON_BIN "${ELECTRON_DIR}/main.js"
+        fi
+    fi
+fi
+
+# Browser mode — detect and open
+if command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "${CONSOLE_URL}" 2>/dev/null &
+elif command -v sensible-browser >/dev/null 2>&1; then
+    sensible-browser "${CONSOLE_URL}" 2>/dev/null &
+elif command -v google-chrome >/dev/null 2>&1; then
+    google-chrome "${CONSOLE_URL}" 2>/dev/null &
+elif command -v firefox >/dev/null 2>&1; then
+    firefox "${CONSOLE_URL}" 2>/dev/null &
+else
+    echo "No browser detected. Open manually: ${CONSOLE_URL}"
+    exit 0
+fi
+
+echo "Titan-X Console opened at ${CONSOLE_URL}"

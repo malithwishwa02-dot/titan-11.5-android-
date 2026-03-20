@@ -1,0 +1,29 @@
+[titan-image] 21:18:20 Auto-detected local images at: /opt/titan/cuttlefish/images
+[titan-image] 21:18:20 Auto-detected CVD host tools at: /opt/titan/cuttlefish/cf/bin
+[titan-image] 21:18:20 Checking build dependencies...
+═══════════════════════════════════════════════════════════
+  Titan-X Image Build Pipeline
+  Branch: aosp-android14-gsi
+  Target: aosp_cf_x86_64_phone-userdebug
+  Work:   /tmp/titan-image-build
+  Output: /opt/titan/images
+  Mode:   LOCAL (/opt/titan/cuttlefish/images)
+═══════════════════════════════════════════════════════════
+[titan-image] 21:18:20 PHASE 1: Using local images from /opt/titan/cuttlefish/images...
+[titan-image] 21:18:34   Copied 12 image files
+[titan-image] 21:19:26   Copied CVD host tools from /opt/titan/cuttlefish/cf
+[titan-image] 21:19:26   Images verified: super.img format (boot.img + super.img)
+[titan-image] 21:19:26 PHASE 3/4: Skipping GApps/NDK injection (no system.img or super.img format)
+[titan-image] 21:19:26   GApps will be installed at runtime via gapps_bootstrap.py
+[titan-image] 21:19:26 PHASE 5: Patching boot.img with Magisk...
+ERROR: boot.img not found at /tmp/titan-image-build/images/boot.img/boot.img
+[titan-image] 21:19:26   WARNING: Magisk boot patch failed — using unpatched boot.img
+[titan-image] 21:19:26   You can patch manually later with: titan-x patch-boot
+[titan-image] 21:19:26 PHASE 6: Pre-installing TrickyStore + PIF modules...
+/opt/titan-v11.3-device/build/install-zygisk-modules.sh: line 31: 1: Usage: /opt/titan-v11.3-device/build/install-zygisk-modules.sh <data_overlay_dir>
+[titan-image] 21:19:26   WARNING: Zygisk module pre-install failed
+[titan-image] 21:19:26   Modules can be installed post-boot via titan-x install-modules
+[titan-image] 21:19:26 PHASE 7: Staging GApps APKs...
+[titan-image] 21:19:32   Staged 7 APKs from /opt/titan/data/gapps
+[titan-image] 21:19:32 PHASE 8: Packaging final image archive...
+[titan-image] 21:19:50   Creating tarball...

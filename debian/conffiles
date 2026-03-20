@@ -1,0 +1,2 @@
+/etc/modules-load.d/titan-x.conf
+/etc/modprobe.d/titan-x.conf

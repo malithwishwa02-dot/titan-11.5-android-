@@ -54,7 +54,7 @@ alert_manager = get_alert_manager()
 # APP INIT
 # ═══════════════════════════════════════════════════════════════════════
 
-app = FastAPI(title="Titan V11.3 Antidetect Device Platform (Cuttlefish)", version="11.3.2")
+app = FastAPI(title="Titan V12.0 Antidetect Device Platform (Cuttlefish)", version="12.0.0")
 
 CONSOLE_DIR = Path(__file__).parent.parent / "console"
 
@@ -351,6 +351,13 @@ async def startup():
             logger.info(f"ADB watchdog started for {len(targets)} devices")
     except Exception as e:
         logger.warning(f"ADB watchdog init failed: {e}")
+
+    # First-run auto-provisioner (creates default device if none exist)
+    try:
+        from first_run import maybe_start_first_run
+        await maybe_start_first_run(dm)
+    except Exception as e:
+        logger.warning(f"First-run provisioner init failed: {e}")
 
 
 @app.on_event("shutdown")
