@@ -4,7 +4,7 @@
 # ═══════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-TITAN_DIR="/opt/titan-x"
+TITAN_DIR="/opt/titan"
 VENV_DIR="/opt/titan/venv"
 DATA_DIR="${TITAN_DATA:-/opt/titan/data}"
 PYTHON="${VENV_DIR}/bin/python3"

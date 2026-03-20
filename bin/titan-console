@@ -12,7 +12,7 @@
 # ═══════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-TITAN_DIR="${TITAN_DIR:-/opt/titan-x}"
+TITAN_DIR="${TITAN_DIR:-/opt/titan}"
 API_PORT="${TITAN_API_PORT:-8080}"
 CONSOLE_URL="https://localhost:${API_PORT}"
 USE_ELECTRON=0

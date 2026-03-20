@@ -20,7 +20,7 @@ SRC_DIR="${SCRIPT_DIR}"
 VERSION="12.0.0"
 PACKAGE="titan-x"
 ARCH="amd64"
-INSTALL_PREFIX="/opt/titan-x"
+INSTALL_PREFIX="/opt/titan"
 
 STAGING="${SRC_DIR}/dist/.staging"
 DEB_OUT="${SRC_DIR}/dist/${PACKAGE}_${VERSION}_${ARCH}.deb"
@@ -104,7 +104,7 @@ chmod 644 "${STAGING}/DEBIAN/control"
 chmod 644 "${STAGING}/DEBIAN/conffiles"
 
 # ═══════════════════════════════════════════════════════════════════════
-# STEP 3: Core application files → /opt/titan-x/
+# STEP 3: Core application files → /opt/titan/
 # ═══════════════════════════════════════════════════════════════════════
 echo "[2/8] Copying core application..."
 

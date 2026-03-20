@@ -20,7 +20,7 @@
 # ═══════════════════════════════════════════════════════════════════════
 set -euo pipefail
 
-TITAN_DIR="/opt/titan-x"
+TITAN_DIR="/opt/titan"
 DATA_DIR="/opt/titan/data"
 VENV_DIR="/opt/titan/venv"
 CVD_DIR="/opt/titan/cuttlefish"

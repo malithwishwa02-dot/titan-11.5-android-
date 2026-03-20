@@ -22,7 +22,7 @@ case "${1:-remove}" in
         rm -rf /opt/titan/venv
 
         # Remove generated config (but NOT user data by default)
-        rm -f /opt/titan-x/.env
+        rm -f /opt/titan/.env
 
         # Remove kernel module configs
         rm -f /etc/modules-load.d/titan-x.conf

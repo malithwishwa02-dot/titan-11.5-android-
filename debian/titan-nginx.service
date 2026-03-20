@@ -9,8 +9,8 @@ Type=simple
 ExecStartPre=-/usr/bin/docker rm -f titan-nginx
 ExecStart=/usr/bin/docker run --rm --name titan-nginx \
     --network host \
-    -v /opt/titan-x/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro \
-    -v /opt/titan-x/docker/ssl:/etc/nginx/ssl:ro \
+    -v /opt/titan/docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro \
+    -v /opt/titan/docker/ssl:/etc/nginx/ssl:ro \
     nginx:alpine
 Restart=on-failure
 RestartSec=5

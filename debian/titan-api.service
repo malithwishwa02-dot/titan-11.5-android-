@@ -7,9 +7,9 @@ Wants=docker.service
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/titan-x
-Environment=PYTHONPATH=/opt/titan-x/server:/opt/titan-x/core
-EnvironmentFile=-/opt/titan-x/.env
+WorkingDirectory=/opt/titan
+Environment=PYTHONPATH=/opt/titan/server:/opt/titan/core
+EnvironmentFile=-/opt/titan/.env
 ExecStart=/opt/titan/venv/bin/uvicorn server.titan_api:app \
     --host 0.0.0.0 --port 8080 \
     --workers 2 --loop uvloop --http httptools
@@ -25,7 +25,7 @@ CPUQuota=200%
 # Security hardening
 ProtectSystem=strict
 ReadWritePaths=/opt/titan/data /opt/titan/venv /opt/titan/cuttlefish /tmp
-ReadWritePaths=/opt/titan-x/.env /opt/titan-x/docker/ssl
+ReadWritePaths=/opt/titan/.env /opt/titan/docker/ssl
 ProtectHome=read-only
 NoNewPrivileges=false
 PrivateTmp=true
