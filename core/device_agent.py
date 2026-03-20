@@ -600,6 +600,15 @@ class DeviceAgent:
                         task.status = "failed"
                         task.error = "Stuck in loop — same action repeated 5 times"
                         break
+                # Detect oscillating patterns (A→B→A→B→A)
+                if len(task.actions) >= 6:
+                    last6 = [a.action_type + str(a.params) for a in task.actions[-6:]]
+                    if (last6[0] == last6[2] == last6[4] and
+                            last6[1] == last6[3] == last6[5] and
+                            last6[0] != last6[1]):
+                        task.status = "failed"
+                        task.error = "Stuck in oscillating loop — alternating 2 actions"
+                        break
 
             else:
                 task.status = "completed"

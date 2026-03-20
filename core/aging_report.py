@@ -48,6 +48,15 @@ class AgingReport:
     injection_results: Dict[str, Any] = field(default_factory=dict)
     # Agent tasks
     agent_tasks: List[Dict[str, Any]] = field(default_factory=list)
+    # V12: Extended metrics
+    lifepath_score: Dict[str, Any] = field(default_factory=dict)
+    play_integrity: Dict[str, Any] = field(default_factory=dict)
+    immune_watchdog: Dict[str, Any] = field(default_factory=dict)
+    sensor_status: Dict[str, Any] = field(default_factory=dict)
+    ghost_sim: Dict[str, Any] = field(default_factory=dict)
+    gps_continuity: Dict[str, Any] = field(default_factory=dict)
+    sms_coherence: Dict[str, Any] = field(default_factory=dict)
+    wifi_consistency: Dict[str, Any] = field(default_factory=dict)
     # Overall
     overall_grade: str = ""
     overall_score: float = 0.0
@@ -124,6 +133,16 @@ class AgingReporter:
 
         # 6. Agent task history from trajectories
         report.agent_tasks = self._load_agent_tasks(device_id)
+
+        # V12: Extended metrics collection
+        report.lifepath_score = await self._get_lifepath_score(device_id)
+        report.play_integrity = await self._get_play_integrity(adb_target)
+        report.immune_watchdog = await self._get_immune_scan(adb_target)
+        report.sensor_status = await self._get_sensor_status(adb_target)
+        report.ghost_sim = await self._get_ghost_sim_status(adb_target)
+        report.gps_continuity = self._check_gps_continuity(device_id)
+        report.sms_coherence = self._check_sms_coherence(device_id)
+        report.wifi_consistency = self._check_wifi_consistency(device_id)
 
         # 7. Calculate overall grade
         report.overall_score, report.overall_grade = self._calculate_grade(report)
@@ -259,14 +278,24 @@ class AgingReporter:
         return tasks[:20]  # Last 20 tasks
 
     def _calculate_grade(self, report: AgingReport) -> tuple:
-        """Calculate overall aging score and letter grade."""
+        """Calculate overall aging score and letter grade.
+
+        V12 weight distribution (total 100):
+          trust=20, patch=12, verify=15, apps=10, wallet=8,
+          lifepath=12, play_integrity=8, immune=5, sensors=5, coherence=5
+        """
         score = 0.0
         weights = {
-            "trust": 30,
-            "patch": 20,
-            "verify": 25,
-            "apps": 15,
-            "wallet": 10,
+            "trust": 20,
+            "patch": 12,
+            "verify": 15,
+            "apps": 10,
+            "wallet": 8,
+            "lifepath": 12,
+            "play_integrity": 8,
+            "immune": 5,
+            "sensors": 5,
+            "coherence": 5,
         }
 
         # Trust score component
@@ -294,6 +323,35 @@ class AgingReporter:
         if report.wallet.get("active"):
             score += weights["wallet"]
 
+        # V12: Life-path coherence
+        lp = report.lifepath_score.get("score", 0)
+        if isinstance(lp, (int, float)):
+            score += (lp / 100) * weights["lifepath"]
+
+        # V12: Play Integrity
+        pi = report.play_integrity.get("score", 0)
+        if isinstance(pi, (int, float)):
+            score += (pi / 100) * weights["play_integrity"]
+
+        # V12: Immune watchdog (invert risk: 0 risk = full score)
+        risk = report.immune_watchdog.get("risk_score", 100)
+        if isinstance(risk, (int, float)):
+            immune_pct = max(0, 100 - risk)
+            score += (immune_pct / 100) * weights["immune"]
+
+        # V12: Sensor daemon running
+        if report.sensor_status.get("running"):
+            score += weights["sensors"]
+
+        # V12: Data coherence (GPS + SMS + WiFi)
+        coherence_checks = [
+            report.gps_continuity.get("coherent", False),
+            report.sms_coherence.get("coherent", False),
+            report.wifi_consistency.get("coherent", False),
+        ]
+        coherent_count = sum(1 for c in coherence_checks if c)
+        score += (coherent_count / max(len(coherence_checks), 1)) * weights["coherence"]
+
         # Grade
         if score >= 90:
             grade = "A+"
@@ -309,6 +367,157 @@ class AgingReporter:
             grade = "F"
 
         return round(score, 1), grade
+
+    # ─── V12 DATA COLLECTION METHODS ────────────────────────────────
+
+    async def _get_lifepath_score(self, device_id: str) -> Dict:
+        """Fetch lifepath coherence score from trust scorer."""
+        try:
+            profile = self._load_full_profile(device_id)
+            if not profile:
+                return {"score": 0, "grade": "N/A", "error": "no profile"}
+            from core.trust_scorer import compute_lifepath_score
+            return compute_lifepath_score(profile)
+        except Exception as e:
+            return {"score": 0, "grade": "N/A", "error": str(e)}
+
+    async def _get_play_integrity(self, adb_target: str) -> Dict:
+        """Run Play Integrity audit on device."""
+        def _audit():
+            from core.play_integrity_spoofer import PlayIntegritySpoofer
+            spoofer = PlayIntegritySpoofer(adb_target=adb_target)
+            return spoofer.audit()
+        try:
+            return await asyncio.to_thread(_audit)
+        except Exception as e:
+            return {"score": 0, "grade": "N/A", "error": str(e)}
+
+    async def _get_immune_scan(self, adb_target: str) -> Dict:
+        """Run immune watchdog full scan."""
+        def _scan():
+            from core.immune_watchdog import ImmuneWatchdog
+            wd = ImmuneWatchdog(adb_target=adb_target)
+            return wd.run_full_scan()
+        try:
+            return await asyncio.to_thread(_scan)
+        except Exception as e:
+            return {"risk_score": 100, "error": str(e)}
+
+    async def _get_sensor_status(self, adb_target: str) -> Dict:
+        """Check if sensor daemon is injecting data."""
+        def _check():
+            import subprocess
+            r = subprocess.run(
+                ["adb", "-s", adb_target, "shell",
+                 "getprop persist.titan.sensor.accel.ts"],
+                capture_output=True, text=True, timeout=10,
+            )
+            ts_str = r.stdout.strip()
+            if not ts_str:
+                return {"running": False, "stale": True}
+            try:
+                last_ts = float(ts_str)
+                age = time.time() - last_ts
+                return {"running": age < 30, "last_update_age_s": round(age, 1)}
+            except ValueError:
+                return {"running": False, "stale": True}
+        try:
+            return await asyncio.to_thread(_check)
+        except Exception as e:
+            return {"running": False, "error": str(e)}
+
+    async def _get_ghost_sim_status(self, adb_target: str) -> Dict:
+        """Check Ghost SIM configuration state."""
+        def _check():
+            import subprocess
+            props = ["gsm.sim.state", "gsm.sim.operator.alpha", "gsm.nitz.time"]
+            results = {}
+            for p in props:
+                r = subprocess.run(
+                    ["adb", "-s", adb_target, "shell", f"getprop {p}"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                results[p] = r.stdout.strip()
+            configured = results.get("gsm.sim.state") == "READY"
+            return {"configured": configured, "props": results}
+        try:
+            return await asyncio.to_thread(_check)
+        except Exception as e:
+            return {"configured": False, "error": str(e)}
+
+    def _check_gps_continuity(self, device_id: str) -> Dict:
+        """Verify GPS coordinates in gallery match maps history."""
+        profile = self._load_full_profile(device_id)
+        if not profile:
+            return {"coherent": False, "reason": "no profile"}
+        gallery = profile.get("gallery_paths", [])
+        maps_hist = profile.get("maps_history", {}).get("searches", [])
+        if not gallery or not maps_hist:
+            return {"coherent": len(gallery) == 0 and len(maps_hist) == 0,
+                    "reason": "insufficient data"}
+        # Check that GPS data exists in both sources
+        has_gallery_gps = any(
+            isinstance(p, dict) and (p.get("lat") or p.get("gps_lat"))
+            for p in gallery
+        )
+        has_maps_gps = len(maps_hist) > 0
+        return {
+            "coherent": has_gallery_gps and has_maps_gps,
+            "gallery_gps_count": sum(1 for p in gallery if isinstance(p, dict) and (p.get("lat") or p.get("gps_lat"))),
+            "maps_search_count": len(maps_hist),
+        }
+
+    def _check_sms_coherence(self, device_id: str) -> Dict:
+        """Verify SMS messages correlate with contacts and call logs."""
+        profile = self._load_full_profile(device_id)
+        if not profile:
+            return {"coherent": False, "reason": "no profile"}
+        contacts = profile.get("contacts", [])
+        sms = profile.get("sms", [])
+        calls = profile.get("call_logs", [])
+        if not sms:
+            return {"coherent": len(contacts) == 0, "reason": "no SMS data"}
+        contact_numbers = {c.get("phone", "") for c in contacts if isinstance(c, dict)}
+        sms_numbers = {s.get("address", "") for s in sms if isinstance(s, dict)}
+        overlap = contact_numbers & sms_numbers
+        ratio = len(overlap) / max(len(sms_numbers), 1)
+        return {
+            "coherent": ratio > 0.3,
+            "overlap_ratio": round(ratio, 2),
+            "sms_count": len(sms),
+            "contacts_in_sms": len(overlap),
+        }
+
+    def _check_wifi_consistency(self, device_id: str) -> Dict:
+        """Verify WiFi networks align with location profile."""
+        profile = self._load_full_profile(device_id)
+        if not profile:
+            return {"coherent": False, "reason": "no profile"}
+        wifi = profile.get("wifi_networks", [])
+        location = profile.get("location", {})
+        if not wifi:
+            return {"coherent": False, "reason": "no WiFi networks"}
+        home_count = sum(1 for w in wifi if isinstance(w, dict) and w.get("type") == "home")
+        public_count = sum(1 for w in wifi if isinstance(w, dict) and w.get("type") == "public")
+        return {
+            "coherent": home_count >= 1 and len(wifi) >= 3,
+            "total": len(wifi),
+            "home": home_count,
+            "public": public_count,
+        }
+
+    def _load_full_profile(self, device_id: str) -> Optional[Dict]:
+        """Load full profile JSON for a device."""
+        if not PROFILES_DIR.exists():
+            return None
+        for f in PROFILES_DIR.glob("*.json"):
+            try:
+                data = json.loads(f.read_text())
+                if data.get("device_id") == device_id or device_id in f.name:
+                    return data
+            except Exception:
+                continue
+        return None
 
     def _generate_recommendations(self, report: AgingReport) -> List[str]:
         """Generate actionable recommendations based on report gaps."""
@@ -333,6 +542,31 @@ class AgingReporter:
 
         if not report.agent_tasks:
             recs.append("No warmup tasks recorded — run warmup_device and warmup_youtube scenarios")
+
+        # V12 recommendations
+        lp = report.lifepath_score.get("score", 0)
+        if isinstance(lp, (int, float)) and lp < 70:
+            recs.append("Lifepath coherence below 70 — re-forge profile with correlate_lifepath()")
+
+        pi = report.play_integrity.get("score", 0)
+        if isinstance(pi, (int, float)) and pi < 80:
+            recs.append("Play Integrity score low — apply_integrity_defense(tier='strong')")
+
+        risk = report.immune_watchdog.get("risk_score", 100)
+        if isinstance(risk, (int, float)) and risk > 30:
+            recs.append(f"Immune risk score {risk} — deploy watchdog and harden probe paths")
+
+        if not report.sensor_status.get("running"):
+            recs.append("Sensor daemon not running — start_continuous_injection()")
+
+        if not report.gps_continuity.get("coherent"):
+            recs.append("GPS data incoherent — ensure gallery EXIF aligns with maps history")
+
+        if not report.sms_coherence.get("coherent"):
+            recs.append("SMS-contact overlap low — re-forge with correlated phone numbers")
+
+        if not report.wifi_consistency.get("coherent"):
+            recs.append("WiFi networks inconsistent — add home/public networks matching location")
 
         if not recs:
             recs.append("Device aging looks complete — monitor for anomaly detection")

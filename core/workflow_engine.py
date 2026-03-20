@@ -145,6 +145,8 @@ class WorkflowEngine:
         job.stages.append(WorkflowStage(name="bootstrap_gapps", method="inject"))
         if persona.get("proxy_url"):
             job.stages.append(WorkflowStage(name="configure_proxy", method="inject"))
+        # V12: Ghost SIM configuration (before forge — carrier data needed)
+        job.stages.append(WorkflowStage(name="ghost_sim_configure", method="inject"))
         if not skip_forge and not profile_id:
             job.stages.append(WorkflowStage(name="forge_profile", method="forge"))
         job.stages.append(WorkflowStage(name="install_apps", method="agent"))
@@ -152,11 +154,20 @@ class WorkflowEngine:
         if persona.get("phone"):
             job.stages.append(WorkflowStage(name="create_google_account", method="agent"))
         job.stages.append(WorkflowStage(name="setup_wallet", method="inject"))
+        # V12: HCE bridge provisioning (after wallet — needs DPAN)
+        if card_data and card_data.get("number"):
+            job.stages.append(WorkflowStage(name="hce_provisioning", method="inject"))
         if not skip_patch:
             job.stages.append(WorkflowStage(name="patch_device", method="patch"))
+        # V12: Play Integrity defense (after patch — needs fingerprint props)
+        job.stages.append(WorkflowStage(name="play_integrity_defense", method="inject"))
+        # V12: Sensor warmup (after patch — avoid prop conflicts)
+        job.stages.append(WorkflowStage(name="sensor_warmup", method="inject"))
         job.stages.append(WorkflowStage(name="warmup_browse", method="agent"))
         job.stages.append(WorkflowStage(name="warmup_youtube", method="agent"))
         job.stages.append(WorkflowStage(name="verify_report", method="inject"))
+        # V12: Immune watchdog (last defense layer before lockdown)
+        job.stages.append(WorkflowStage(name="immune_watchdog", method="inject"))
         if disable_adb:
             job.stages.append(WorkflowStage(name="lockdown_device", method="inject"))
 
@@ -240,21 +251,27 @@ class WorkflowEngine:
         stage_map = {
             "bootstrap_gapps": lambda: self._stage_bootstrap_gapps(job),
             "configure_proxy": lambda: self._stage_configure_proxy(job, persona),
+            "ghost_sim_configure": lambda: self._stage_ghost_sim(job, persona, country),
             "forge_profile": lambda: self._stage_forge(job, persona, country, aging),
             "inject_profile": lambda: self._stage_inject(job, persona, card_data),
             "create_google_account": lambda: self._stage_create_google_account(job, persona),
             "patch_device": lambda: self._stage_patch(job, country),
             "install_apps": lambda: self._stage_install_apps(job, bundles),
             "setup_wallet": lambda: self._stage_wallet(job, card_data),
+            "hce_provisioning": lambda: self._stage_hce(job, card_data),
+            "play_integrity_defense": lambda: self._stage_play_integrity(job),
+            "sensor_warmup": lambda: self._stage_sensor_warmup(job),
             "warmup_browse": lambda: self._stage_warmup(job, "browse", aging),
             "warmup_youtube": lambda: self._stage_warmup(job, "youtube", aging),
             "verify_report": lambda: self._stage_verify(job),
+            "immune_watchdog": lambda: self._stage_immune_watchdog(job),
             "lockdown_device": lambda: self._stage_lockdown(job),
         }
 
         ABORT_ON_FAILURE = {"bootstrap_gapps", "forge_profile"}
         RETRYABLE_STAGES = {"inject_profile", "install_apps", "setup_wallet",
-                            "warmup_browse", "warmup_youtube", "verify_report"}
+                            "warmup_browse", "warmup_youtube", "verify_report",
+                            "hce_provisioning", "sensor_warmup", "play_integrity_defense"}
         MAX_RETRIES = 2
 
         for idx, stage in enumerate(job.stages):
@@ -766,6 +783,84 @@ class WorkflowEngine:
             logger.info(f"Wallet verify: {wallet_report.passed}/{wallet_report.total} ({wallet_report.grade})")
         except Exception as e:
             logger.warning(f"Wallet verification failed: {e}")
+
+    # ─── V12 STAGES ────────────────────────────────────────────────
+
+    async def _stage_ghost_sim(self, job: WorkflowJob, persona: Dict, country: str):
+        """Stage: Ghost SIM v2.0 — configure virtual SIM before forge."""
+        from core.ghost_sim import GhostSIM, SIMConfig
+        dev = self.dm.get_device(job.device_id) if self.dm else None
+        target = dev.adb_target if dev else "127.0.0.1:6520"
+        carrier = persona.get("carrier", "tmobile_us")
+        location = persona.get("location", "new_york")
+        config = SIMConfig(carrier=carrier, location=location, country=country)
+        gsim = GhostSIM(adb_target=target)
+        result = gsim.configure(config)
+        job.report["ghost_sim"] = result
+        logger.info("Ghost SIM configured", extra={"carrier": carrier, "country": country})
+        # Start signal jitter daemon in background
+        gsim.start_signal_daemon()
+
+    async def _stage_hce(self, job: WorkflowJob, card_data: Optional[Dict]):
+        """Stage: HCE Bridge — register NFC payment service with DPAN."""
+        if not card_data or not card_data.get("number"):
+            logger.info("HCE skipped — no card data")
+            return
+        from core.hce_bridge import HCEBridge, HCEConfig
+        dev = self.dm.get_device(job.device_id) if self.dm else None
+        target = dev.adb_target if dev else "127.0.0.1:6520"
+        wallet_data = job.report.get("wallet", {})
+        dpan = wallet_data.get("dpan", "")
+        exp = f"{card_data.get('exp_month', '12')}/{card_data.get('exp_year', '28')}"
+        config = HCEConfig(
+            dpan=dpan or card_data["number"],
+            expiry=exp,
+            cardholder=card_data.get("name", "CARDHOLDER"),
+            network=card_data.get("network", "visa"),
+        )
+        bridge = HCEBridge(adb_target=target)
+        result = bridge.configure(config)
+        bridge.register_hce_service()
+        job.report["hce"] = result
+        logger.info("HCE bridge provisioned", extra={"network": config.network})
+
+    async def _stage_play_integrity(self, job: WorkflowJob):
+        """Stage: Play Integrity defense — prop hardening + PIF config."""
+        from core.play_integrity_spoofer import PlayIntegritySpoofer
+        dev = self.dm.get_device(job.device_id) if self.dm else None
+        target = dev.adb_target if dev else "127.0.0.1:6520"
+        preset_name = job.report.get("preset", "samsung_s25_ultra")
+        spoofer = PlayIntegritySpoofer(adb_target=target)
+        result = spoofer.apply_integrity_defense(tier="strong", preset=preset_name)
+        job.report["play_integrity"] = result
+        logger.info("Play Integrity defense applied", extra={"tier": "strong"})
+
+    async def _stage_sensor_warmup(self, job: WorkflowJob):
+        """Stage: Sensor daemon — start continuous sensor injection."""
+        from core.sensor_simulator import SensorSimulator
+        dev = self.dm.get_device(job.device_id) if self.dm else None
+        target = dev.adb_target if dev else "127.0.0.1:6520"
+        preset_name = job.report.get("preset", "samsung_s25_ultra")
+        brand = "samsung" if "samsung" in preset_name else "google"
+        sim = SensorSimulator(adb_target=target, device_profile=brand)
+        sim.start_continuous_injection(interval_s=2)
+        job.report["sensor_warmup"] = {"status": "running", "profile": brand}
+        logger.info("Sensor daemon started", extra={"profile": brand})
+
+    async def _stage_immune_watchdog(self, job: WorkflowJob):
+        """Stage: Immune Watchdog — deploy honeypots + monitoring."""
+        from core.immune_watchdog import ImmuneWatchdog
+        dev = self.dm.get_device(job.device_id) if self.dm else None
+        target = dev.adb_target if dev else "127.0.0.1:6520"
+        wd = ImmuneWatchdog(adb_target=target)
+        deploy_result = wd.deploy()
+        wd.start_monitoring(interval_s=30)
+        scan = wd.run_full_scan()
+        job.report["immune_watchdog"] = {
+            "deploy": deploy_result,
+            "initial_scan": scan,
+        }
+        logger.info("Immune watchdog deployed", extra={"risk": scan.get("risk_score", -1)})
 
     async def _stage_lockdown(self, job: WorkflowJob):
         """Stage: Production lockdown — disable ADB and developer options.

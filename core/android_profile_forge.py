@@ -63,18 +63,46 @@ TITAN_DATA = Path(os.environ.get("TITAN_DATA", "/opt/titan/data"))
 
 NAME_POOLS = {
     "US": {
-        "first_male": ["James", "Robert", "John", "Michael", "David", "William",
-                       "Richard", "Joseph", "Thomas", "Christopher", "Daniel", "Matthew",
-                       "Anthony", "Mark", "Andrew", "Steven", "Brian", "Kevin", "Jason", "Ryan"],
-        "first_female": ["Mary", "Patricia", "Jennifer", "Linda", "Barbara", "Elizabeth",
-                         "Susan", "Jessica", "Sarah", "Karen", "Lisa", "Nancy",
-                         "Betty", "Margaret", "Sandra", "Ashley", "Emily", "Donna", "Michelle", "Carol"],
-        "last": ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller",
-                 "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez",
-                 "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin",
-                 "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", "Lewis"],
+        "first_male": [
+            # White/European (40%)
+            "James", "Robert", "John", "Michael", "David", "William", "Thomas", "Christopher",
+            "Daniel", "Matthew", "Andrew", "Ryan", "Brandon", "Tyler", "Connor", "Ethan",
+            # Hispanic/Latino (22%)
+            "Carlos", "Luis", "Miguel", "Diego", "Alejandro", "José", "Juan", "Santiago",
+            "Mateo", "Andrés", "Gabriel", "Rafael",
+            # Black/African American (14%)
+            "Jaylen", "DeShawn", "Malik", "Terrence", "Darius", "Lamar", "Tyrone", "Jamal",
+            "Marcus", "André",
+            # Asian American (7%)
+            "Wei", "Jin", "Hiroshi", "Raj", "Arjun", "Vinh", "Hiro", "Sanjay",
+            "Kevin", "Jason",
+        ],
+        "first_female": [
+            # White/European (40%)
+            "Jennifer", "Jessica", "Sarah", "Ashley", "Emily", "Hannah", "Megan", "Rachel",
+            "Lauren", "Olivia", "Sophia", "Emma", "Chloe", "Abigail", "Natalie", "Grace",
+            # Hispanic/Latina (22%)
+            "María", "Camila", "Valentina", "Isabella", "Lucía", "Sofía", "Gabriela",
+            "Carmen", "Rosa", "Elena", "Diana", "Ana",
+            # Black/African American (14%)
+            "Aaliyah", "Imani", "Jasmine", "Destiny", "Shaniqua", "Keisha", "Tamika",
+            "Aisha", "Naomi", "Zuri",
+            # Asian American (7%)
+            "Mei", "Yuki", "Priya", "Ananya", "Lin", "Sakura", "Kavya", "Michelle",
+        ],
+        "last": [
+            # Census-weighted mix: White + Hispanic + Black + Asian
+            "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller",
+            "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez",
+            "Wilson", "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin",
+            "Lee", "Perez", "Thompson", "White", "Harris", "Sanchez", "Clark", "Lewis",
+            "Nguyen", "Patel", "Kim", "Chen", "Wang", "Singh", "Reyes", "Cruz",
+            "Torres", "Ramirez", "Flores", "Rivera", "Morales", "Ortiz",
+            "Diaz", "Gutierrez", "Woods", "Washington", "Freeman", "Banks",
+        ],
         "area_codes": ["212", "646", "718", "917", "310", "323", "415", "312",
-                       "713", "214", "404", "305", "202", "617", "503", "206"],
+                       "713", "214", "404", "305", "202", "617", "503", "206",
+                       "469", "832", "678", "786", "347", "929", "424", "628"],
     },
     "GB": {
         "first_male": ["Oliver", "George", "Harry", "Jack", "Charlie", "Thomas",
@@ -163,7 +191,7 @@ MOBILE_DOMAINS = {
     "global": [
         ("youtube.com", "YouTube"),
         ("instagram.com", "Instagram"),
-        ("twitter.com", "X (formerly Twitter)"),
+        ("x.com", "X"),
         ("reddit.com", "Reddit"),
         ("tiktok.com", "TikTok"),
         ("facebook.com", "Facebook"),
@@ -175,6 +203,9 @@ MOBILE_DOMAINS = {
         ("docs.google.com", "Google Docs"),
         ("wikipedia.org", "Wikipedia"),
         ("stackoverflow.com", "Stack Overflow"),
+        ("threads.net", "Threads"),
+        ("chatgpt.com", "ChatGPT"),
+        ("perplexity.ai", "Perplexity"),
     ],
     "US": [
         ("amazon.com", "Amazon"),
@@ -240,8 +271,11 @@ COOKIE_ANCHORS = {
     "instagram.com": [
         ("sessionid", 32), ("csrftoken", 24), ("mid", 16),
     ],
-    "twitter.com": [
+    "x.com": [
         ("auth_token", 24), ("ct0", 32), ("guest_id", 0),
+    ],
+    "threads.net": [
+        ("sessionid", 32), ("csrftoken", 24),
     ],
 }
 
@@ -452,7 +486,8 @@ class AndroidProfileForge:
         history = self._forge_history(now, age_days, locale)
 
         # ─── Generate gallery photos ──────────────────────────────────
-        gallery_paths = self._forge_gallery(now, age_days, device_model=device_model)
+        gallery_paths = self._forge_gallery(now, age_days, device_model=device_model,
+                                             location=location)
 
         # ─── Generate autofill (use persona's real address if provided) ─
         if persona_address and persona_address.get("address"):
@@ -921,54 +956,74 @@ class AndroidProfileForge:
     # ─── GALLERY PHOTOS ───────────────────────────────────────────────
 
     def _forge_gallery(self, now: datetime, age_days: int,
-                        device_model: str = "") -> List[str]:
+                        device_model: str = "", location: str = "nyc") -> List[Dict]:
         """Generate placeholder JPEG photos scaled to device age.
 
         Samsung camera filename format: YYYYMMDD_HHMMSS.jpg (no IMG_ prefix).
         Pixel/AOSP format: PXL_YYYYMMDD_HHMMSSXXX.jpg.
         Other/generic: IMG_YYYYMMDD_XXXXXX.jpg.
 
-        Real S25 Ultra photo counts (from MediaStore audits):
-          90d  → 150-500 photos
-          180d → 300-900 photos
-          365d → 600-1800 photos
-          500d → 800-2500 photos
+        Returns list of dicts with path + GPS metadata for lifepath correlation.
         """
         rng = self._rng
-        # Scale photo count with device age — camera roll grows linearly
+
+        # Resolve GPS center from location
+        try:
+            from core.device_presets import LOCATIONS
+            loc = LOCATIONS.get(location, LOCATIONS.get("nyc", {}))
+            center_lat = loc.get("lat", 40.7580)
+            center_lon = loc.get("lon", -73.9855)
+        except Exception:
+            center_lat, center_lon = 40.7580, -73.9855
+
+        # Scale photo count with device age
         lo = max(20, int(age_days * 1.2))
         hi = max(lo + 50, min(int(age_days * 4.5), 2500))
         num_photos = rng.randint(lo, hi)
         gallery_dir = TITAN_DATA / "forge_gallery"
         gallery_dir.mkdir(parents=True, exist_ok=True)
 
-        # Determine filename format from device model
         is_samsung = "samsung" in device_model.lower()
         is_pixel = "pixel" in device_model.lower()
 
-        paths = []
+        photos = []
         for i in range(num_photos):
             dt = _random_datetime(rng, now, 1, age_days)
             if is_samsung:
-                # Samsung Gallery: YYYYMMDD_HHMMSS.jpg
                 fname = f"{dt.strftime('%Y%m%d_%H%M%S')}.jpg"
             elif is_pixel:
-                # Pixel camera: PXL_YYYYMMDD_HHMMSSXXX.jpg
                 fname = f"PXL_{dt.strftime('%Y%m%d_%H%M%S')}{rng.randint(0, 999):03d}.jpg"
             else:
                 fname = f"IMG_{dt.strftime('%Y%m%d')}_{rng.randint(100000, 999999)}.jpg"
             fpath = gallery_dir / fname
 
-            # Create a minimal JPEG placeholder (real deployment uses stock photos)
+            # Jitter GPS: ±0.02° (~2km) from home for 70% of photos,
+            # ±0.15° (~15km) for 25% (errands/work), ±1.0° for 5% (travel)
+            r = rng.random()
+            if r < 0.70:
+                jitter = 0.02
+            elif r < 0.95:
+                jitter = 0.15
+            else:
+                jitter = 1.0
+            gps_lat = center_lat + rng.uniform(-jitter, jitter)
+            gps_lon = center_lon + rng.uniform(-jitter, jitter)
+
             if not fpath.exists():
-                self._create_placeholder_jpeg(fpath, dt)
+                self._create_placeholder_jpeg(fpath, dt, gps_lat, gps_lon)
 
-            paths.append(str(fpath))
+            photos.append({
+                "path": str(fpath),
+                "lat": round(gps_lat, 6),
+                "lon": round(gps_lon, 6),
+                "timestamp": int(dt.timestamp()),
+            })
 
-        return paths
+        return photos
 
-    def _create_placeholder_jpeg(self, path: Path, dt: datetime):
-        """Create a minimal JPEG file with EXIF date and GPS metadata."""
+    def _create_placeholder_jpeg(self, path: Path, dt: datetime,
+                                  gps_lat: float = 0.0, gps_lon: float = 0.0):
+        """Create a minimal valid JPEG file with EXIF date + GPS metadata."""
         try:
             # SOI marker
             data = b'\xff\xd8'
@@ -976,7 +1031,7 @@ class AndroidProfileForge:
             data += b'\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00'
 
             # APP1 EXIF header with DateTimeOriginal and GPS
-            exif_data = self._build_exif_segment(dt)
+            exif_data = self._build_exif_segment(dt, gps_lat, gps_lon)
             data += exif_data
 
             # DQT
@@ -999,28 +1054,97 @@ class AndroidProfileForge:
             # Fallback: just write random bytes
             path.write_bytes(os.urandom(self._rng.randint(30000, 80000)))
 
-    def _build_exif_segment(self, dt: datetime) -> bytes:
-        """Build a minimal EXIF APP1 segment with DateTimeOriginal."""
-        # EXIF date string: "YYYY:MM:DD HH:MM:SS"
-        date_str = dt.strftime("%Y:%m:%d %H:%M:%S").encode("ascii") + b'\x00'
+    def _build_exif_segment(self, dt: datetime, gps_lat: float = 0.0, gps_lon: float = 0.0) -> bytes:
+        """Build EXIF APP1 segment with DateTimeOriginal + GPSInfo IFD.
 
-        # Build TIFF IFD0 with DateTimeOriginal tag (0x9003)
-        # Minimal EXIF: just enough to pass forensic checks
-        # Tag 0x9003 = DateTimeOriginal, Type=ASCII(2), Count=20
-        ifd_entry = struct.pack(">HHI", 0x9003, 2, 20)
-        # Value offset: 8 (TIFF header) + 2 (count) + 12 (entry) + 4 (next) = 26
-        ifd_entry += struct.pack(">I", 26)
+        Produces valid TIFF structure with:
+          - IFD0: DateTimeOriginal (0x9003), ExifIFDPointer (0x8769), GPSInfoIFDPointer (0x8825)
+          - GPS IFD: GPSLatitudeRef, GPSLatitude, GPSLongitudeRef, GPSLongitude
+        """
+        date_str = dt.strftime("%Y:%m:%d %H:%M:%S").encode("ascii") + b'\x00'  # 20 bytes
 
-        # TIFF structure: byte order + magic + offset + count + entry + next IFD + data
-        tiff = b'MM'                          # Big-endian
-        tiff += struct.pack(">H", 42)         # TIFF magic
-        tiff += struct.pack(">I", 8)          # Offset to IFD0
-        tiff += struct.pack(">H", 1)          # 1 entry
-        tiff += ifd_entry                     # The DateTimeOriginal entry
-        tiff += struct.pack(">I", 0)          # Next IFD: none
-        tiff += date_str                      # DateTimeOriginal value
+        def _deg_to_rational(deg: float):
+            """Convert decimal degrees to (degrees, minutes, seconds) as RATIONAL pairs."""
+            d = int(abs(deg))
+            m = int((abs(deg) - d) * 60)
+            s = int(((abs(deg) - d) * 60 - m) * 60 * 100)  # ×100 for precision
+            return (d, 1, m, 1, s, 100)
 
-        # APP1 segment: marker + length + "Exif\0\0" + TIFF
+        # === Pre-compute GPS rational data ===
+        lat_ref = b'N\x00' if gps_lat >= 0 else b'S\x00'
+        lon_ref = b'E\x00' if gps_lon >= 0 else b'W\x00'
+        lat_rationals = _deg_to_rational(gps_lat)
+        lon_rationals = _deg_to_rational(gps_lon)
+
+        # === Build TIFF structure ===
+        # We'll build: TIFF header (8) | IFD0 | IFD0 data | GPS IFD | GPS data
+        # IFD0: 3 entries (DateTimeOriginal, ExifIFD ptr, GPS IFD ptr)
+        ifd0_count = 3
+        ifd0_size = 2 + ifd0_count * 12 + 4  # count + entries + next_ifd_ptr
+        ifd0_offset = 8  # right after TIFF header
+
+        # Data area starts after IFD0
+        data_offset = ifd0_offset + ifd0_size
+
+        # DateTimeOriginal value (20 bytes) at data_offset
+        dt_value_offset = data_offset
+        dt_value = date_str  # 20 bytes
+
+        # GPS IFD at dt_value_offset + 20
+        gps_ifd_offset = dt_value_offset + len(dt_value)
+        gps_count = 4  # LatRef, Lat, LonRef, Lon
+        gps_ifd_size = 2 + gps_count * 12 + 4
+        gps_data_offset = gps_ifd_offset + gps_ifd_size
+
+        # GPS data: lat_rationals (24 bytes) + lon_rationals (24 bytes)
+        lat_data_offset = gps_data_offset
+        lon_data_offset = lat_data_offset + 24
+
+        # === Assemble IFD0 ===
+        ifd0 = struct.pack(">H", ifd0_count)
+        # Entry 1: DateTimeOriginal (0x9003), ASCII, 20 chars
+        ifd0 += struct.pack(">HHII", 0x9003, 2, 20, dt_value_offset)
+        # Entry 2: ExifIFDPointer — point to ourselves (simplification; not strictly needed)
+        ifd0 += struct.pack(">HHII", 0x8769, 4, 1, ifd0_offset)
+        # Entry 3: GPSInfoIFDPointer
+        ifd0 += struct.pack(">HHII", 0x8825, 4, 1, gps_ifd_offset)
+        # Next IFD: none
+        ifd0 += struct.pack(">I", 0)
+
+        # === Assemble GPS IFD ===
+        gps_ifd = struct.pack(">H", gps_count)
+        # GPSLatitudeRef (0x0001): ASCII, 2 bytes — inline
+        gps_ifd += struct.pack(">HHI", 0x0001, 2, 2)
+        gps_ifd += lat_ref + b'\x00\x00'  # pad to 4 bytes
+        # GPSLatitude (0x0002): RATIONAL×3, 24 bytes at lat_data_offset
+        gps_ifd += struct.pack(">HHII", 0x0002, 5, 3, lat_data_offset)
+        # GPSLongitudeRef (0x0003): ASCII, 2 bytes — inline
+        gps_ifd += struct.pack(">HHI", 0x0003, 2, 2)
+        gps_ifd += lon_ref + b'\x00\x00'
+        # GPSLongitude (0x0004): RATIONAL×3, 24 bytes at lon_data_offset
+        gps_ifd += struct.pack(">HHII", 0x0004, 5, 3, lon_data_offset)
+        # Next IFD: none
+        gps_ifd += struct.pack(">I", 0)
+
+        # === GPS data: 3 RATIONALs each (numerator/denominator pairs) ===
+        lat_data = b''
+        for i in range(0, 6, 2):
+            lat_data += struct.pack(">II", lat_rationals[i], lat_rationals[i + 1])
+        lon_data = b''
+        for i in range(0, 6, 2):
+            lon_data += struct.pack(">II", lon_rationals[i], lon_rationals[i + 1])
+
+        # === Assemble full TIFF ===
+        tiff = b'MM'
+        tiff += struct.pack(">H", 42)
+        tiff += struct.pack(">I", ifd0_offset)
+        tiff += ifd0
+        tiff += dt_value
+        tiff += gps_ifd
+        tiff += lat_data
+        tiff += lon_data
+
+        # APP1 segment
         exif_header = b'Exif\x00\x00'
         payload = exif_header + tiff
         segment = b'\xff\xe1' + struct.pack(">H", len(payload) + 2) + payload

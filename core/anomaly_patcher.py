@@ -1536,62 +1536,198 @@ class AnomalyPatcher:
 
     # ─── PHASE 13: BLUETOOTH PAIRED DEVICES ──────────────────────────
 
-    def _patch_bluetooth(self):
-        logger.info("Phase 13: Bluetooth paired devices")
+    def _patch_bluetooth(self, preset: DevicePreset = None):
+        logger.info("Phase 13: Bluetooth paired devices + adapter identity")
 
-        bt_names = ["Galaxy Buds2 Pro", "JBL Flip 6", "Car Audio", "Pixel Buds A-Series",
-                     "AirPods Pro", "Sony WH-1000XM5", "Bose QC45"]
-        num_pairs = random.randint(2, 4)
-        selected = random.sample(bt_names, min(num_pairs, len(bt_names)))
+        # ── OUI-validated BT device MACs (real manufacturer prefixes) ──
+        bt_devices = [
+            {"name": "Galaxy Buds2 Pro", "oui": "7C:49:EB", "cod": "0x240404"},  # Samsung audio
+            {"name": "Galaxy Watch6", "oui": "DC:EF:CA", "cod": "0x000704"},  # Samsung wearable
+            {"name": "JBL Flip 6", "oui": "00:22:37", "cod": "0x240404"},  # Harman audio
+            {"name": "AirPods Pro", "oui": "DC:A6:32", "cod": "0x200404"},  # Apple audio
+            {"name": "Sony WH-1000XM5", "oui": "AC:80:0A", "cod": "0x240404"},  # Sony audio
+            {"name": "Bose QC45", "oui": "04:52:C7", "cod": "0x240404"},  # Bose audio
+            {"name": "Car Audio", "oui": "00:1E:3D", "cod": "0x200420"},  # Alpine car
+            {"name": "Toyota Entune", "oui": "00:23:01", "cod": "0x200420"},  # Car
+            {"name": "Pixel Buds A-Series", "oui": "58:24:29", "cod": "0x240404"},
+            {"name": "Tile Mate", "oui": "D4:F5:47", "cod": "0x001F00"},  # Tile tracker
+        ]
+        num_pairs = random.randint(2, 5)
+        selected = random.sample(bt_devices, min(num_pairs, len(bt_devices)))
 
-        # Create Bluetooth config directory and paired device entries
-        bt_cmds = ["mkdir -p /data/misc/bluedroid"]
-        for i, name in enumerate(selected):
-            mac = ":".join(f"{random.randint(0,255):02X}" for _ in range(6))
-            bt_cmds.append(
-                f"echo '{mac} {name}' >> /data/misc/bluedroid/bt_config.conf"
-            )
-        self._sh("; ".join(bt_cmds), timeout=15)
-        # Verify bt_config.conf was created
-        _, bt_check = self._sh("wc -l /data/misc/bluedroid/bt_config.conf 2>/dev/null")
-        bt_lines = 0
-        if bt_check:
-            parts = bt_check.strip().split()
-            if parts and parts[0].isdigit():
-                bt_lines = int(parts[0])
-        self._record("bluetooth_pairs", bt_lines >= num_pairs, f"{bt_lines}/{num_pairs} paired devices")
+        # ── Adapter identity: OUI from device brand ──
+        brand = (preset.brand.lower() if preset else "samsung")
+        adapter_oui = {
+            "samsung": "7C:49:EB",
+            "google": "58:24:29",
+            "oneplus": "98:0D:51",
+            "xiaomi": "64:CE:D0",
+        }.get(brand, "7C:49:EB")
+        adapter_mac = adapter_oui + ":" + ":".join(f"{random.randint(0,255):02X}" for _ in range(3))
+
+        # ── Android 14+ Bluetooth config at /data/misc/bluetooth/bt_config.conf ──
+        # (moved from /data/misc/bluedroid in Android 12+)
+        bt_config_lines = [
+            "[General]",
+            f"Name = {preset.model if preset else 'Galaxy S25 Ultra'}",
+            f"Address = {adapter_mac}",
+            "DiscoverableTimeout = 120",
+            "PairableTimeout = 0",
+            "Class = 0x5A020C",  # Phone, networking, object transfer
+            "Privacy = 0x01",
+            "",
+        ]
+        for dev in selected:
+            dev_mac = dev["oui"] + ":" + ":".join(f"{random.randint(0,255):02X}" for _ in range(3))
+            ts = int(time.time()) - random.randint(86400, 365 * 86400)
+            bt_config_lines.extend([
+                f"[{dev_mac}]",
+                f"Name = {dev['name']}",
+                f"Class = {dev['cod']}",
+                f"Timestamp = {ts}",
+                "LinkKeyType = 5",
+                f"LinkKey = {secrets.token_hex(16)}",
+                "Trusted = true",
+                "Blocked = false",
+                "WakeAllowed = true",
+                "",
+            ])
+        bt_config_content = "\\n".join(bt_config_lines)
+
+        # Write to both legacy and Android 14+ paths
+        bt_cmds = (
+            "mkdir -p /data/misc/bluetooth /data/misc/bluedroid; "
+            f"printf '{bt_config_content}' > /data/misc/bluetooth/bt_config.conf; "
+            f"cp /data/misc/bluetooth/bt_config.conf /data/misc/bluedroid/bt_config.conf; "
+            "chmod 660 /data/misc/bluetooth/bt_config.conf /data/misc/bluedroid/bt_config.conf; "
+            "chown bluetooth:bluetooth /data/misc/bluetooth/bt_config.conf 2>/dev/null; "
+            "chown bluetooth:bluetooth /data/misc/bluedroid/bt_config.conf 2>/dev/null"
+        )
+        self._sh(bt_cmds, timeout=15)
+
+        # BT system props (version/features)
+        bt_props = {
+            "persist.bluetooth.btsnoopenable": "false",
+            "bluetooth.device.default_name": preset.model if preset else "Galaxy S25 Ultra",
+            "ro.bluetooth.a2dp_offload.supported": "true",
+            "persist.bluetooth.a2dp_offload.disabled": "false",
+            "persist.bluetooth.bluetooth_audio_hal.disabled": "false",
+        }
+        self._batch_setprop(bt_props)
+
+        # Verify
+        _, bt_check = self._sh("cat /data/misc/bluetooth/bt_config.conf 2>/dev/null | grep -c '\\[.*:.*\\]'")
+        bt_pairs = 0
+        if bt_check and bt_check.strip().isdigit():
+            bt_pairs = int(bt_check.strip())
+        self._record("bluetooth_pairs", bt_pairs >= num_pairs,
+                      f"{bt_pairs}/{num_pairs} paired, adapter={adapter_mac}")
 
     # ─── PHASE 14: /proc SPOOFING ────────────────────────────────────
 
     def _patch_proc_info(self, preset: DevicePreset):
-        logger.info("Phase 14: /proc/cpuinfo & /proc/meminfo spoofing")
+        logger.info("Phase 14: /proc/cpuinfo & /proc/meminfo spoofing (bind-mount)")
 
         # Map device hardware to SoC info
         soc_map = {
-            "qcom": ("Qualcomm Technologies, Inc SM8650", "Snapdragon 8 Gen 3", 8),
-            "kalama": ("Qualcomm Technologies, Inc SM8550", "Snapdragon 8 Gen 2", 8),
-            "tensor": ("Google Tensor G4", "Tensor G4", 8),
-            "exynos": ("Samsung Exynos 1480", "Exynos 1480", 8),
-            "mt6835": ("MediaTek Helio G99", "MT6835", 8),
-            "mt6897": ("MediaTek Dimensity 7300", "MT6897", 8),
-            "mt6991": ("MediaTek Dimensity 9400", "MT6991", 8),
+            "qcom": ("Qualcomm Technologies, Inc SM8650", "Snapdragon 8 Gen 3", 8,
+                      "Cortex-A520", "ARMv8 Processor rev 2 (v8l)", "0x41", "0xd03"),
+            "kalama": ("Qualcomm Technologies, Inc SM8550", "Snapdragon 8 Gen 2", 8,
+                        "Cortex-A510", "ARMv8 Processor rev 2 (v8l)", "0x41", "0xd03"),
+            "tensor": ("Google Tensor G4", "Tensor G4", 8,
+                        "Cortex-A510", "ARMv8 Processor rev 1 (v8l)", "0x41", "0xd03"),
+            "exynos": ("Samsung Exynos 1480", "Exynos 1480", 8,
+                        "Cortex-A78", "ARMv8 Processor rev 1 (v8l)", "0x41", "0xd41"),
+            "mt6835": ("MediaTek Helio G99", "MT6835", 8,
+                        "Cortex-A76", "ARMv8 Processor rev 0 (v8l)", "0x41", "0xd0b"),
+            "mt6897": ("MediaTek Dimensity 7300", "MT6897", 8,
+                        "Cortex-A78", "ARMv8 Processor rev 1 (v8l)", "0x41", "0xd41"),
+            "mt6991": ("MediaTek Dimensity 9400", "MT6991", 8,
+                        "Cortex-A720", "ARMv9 Processor rev 0 (v9l)", "0x41", "0xd81"),
         }
         hw = preset.hardware
-        soc_name, soc_short, cores = soc_map.get(hw, soc_map.get(preset.board, ("Unknown SoC", "Unknown", 8)))
+        soc_info = soc_map.get(hw, soc_map.get(preset.board, None))
+        if not soc_info:
+            soc_name, soc_short, cores = "Unknown SoC", "Unknown", 8
+            core_name, proc_str, implementer, part = "Cortex-A520", "ARMv8 Processor rev 2 (v8l)", "0x41", "0xd03"
+        else:
+            soc_name, soc_short, cores, core_name, proc_str, implementer, part = soc_info
 
-        # Set SoC identity props
+        # Set SoC identity props (for apps that read props instead of /proc)
         soc_props = {
             "persist.titan.soc.name": soc_name,
             "persist.titan.soc.cores": str(cores),
         }
         self._batch_setprop(soc_props)
         self._resetprop("ro.board.platform", preset.board)
-        self._record("proc_cpuinfo", True, soc_name)
+
+        # ── Generate realistic /proc/cpuinfo matching the target SoC ──
+        # This is critical: modern RASP (RootBeer, ThreatMetrix, Iovation)
+        # reads /proc/cpuinfo directly and compares against ro.hardware/board.
+        # Cuttlefish default shows "QEMU Virtual CPU" — instant detection.
+        cpuinfo_lines = []
+        features = "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp"
+        for i in range(cores):
+            cpuinfo_lines.extend([
+                f"processor\t: {i}",
+                f"BogoMIPS\t: {48.00 + random.uniform(-2, 2):.2f}",
+                f"Features\t: {features}",
+                f"CPU implementer\t: {implementer}",
+                f"CPU architecture: 8",
+                f"CPU variant\t: 0x{random.randint(0, 3)}",
+                f"CPU part\t: {part}",
+                f"CPU revision\t: {random.randint(0, 4)}",
+                "",
+            ])
+        cpuinfo_lines.extend([
+            f"Hardware\t: {soc_name}",
+            f"Revision\t: 0000",
+            f"Serial\t\t: {secrets.token_hex(8)}",
+        ])
+        cpuinfo_text = "\\n".join(cpuinfo_lines)
+
+        # Write to tmpfs and bind-mount over /proc/cpuinfo
+        cpuinfo_cmd = (
+            "mkdir -p /dev/.sc 2>/dev/null; "
+            f"printf '{cpuinfo_text}' > /dev/.sc/cpuinfo; "
+            "chmod 444 /dev/.sc/cpuinfo; "
+            # Unmount any previous bind to prevent stacking
+            "umount /proc/cpuinfo 2>/dev/null; "
+            "mount --bind /dev/.sc/cpuinfo /proc/cpuinfo 2>/dev/null"
+        )
+        ok, _ = self._sh(cpuinfo_cmd, timeout=15)
+        if ok:
+            # Verify bind-mount took effect
+            _, verify = self._sh("head -1 /proc/cpuinfo")
+            success = "processor" in (verify or "").lower()
+            # Double-check no QEMU/Cuttlefish leaks
+            _, leak_check = self._sh("grep -ci 'qemu\\|cuttlefish\\|goldfish\\|ranchu\\|virtual' /proc/cpuinfo")
+            leaks = int(leak_check.strip()) if leak_check and leak_check.strip().isdigit() else 0
+            self._record("proc_cpuinfo", success and leaks == 0,
+                          f"{soc_name}, {cores} cores, leaks={leaks}")
+        else:
+            # Fallback: mount may be denied (SELinux)
+            self._record("proc_cpuinfo", False, "bind-mount denied — props only")
 
         # Spoof memory to match device spec (most flagships: 8-12GB)
         ram_gb = 12 if "ultra" in preset.name.lower() or "pro" in preset.name.lower() else 8
-        self._setprop("persist.titan.ram_gb", str(ram_gb))
-        self._record("proc_meminfo", True, f"{ram_gb}GB RAM")
+        total_kb = ram_gb * 1024 * 1024
+        avail_kb = int(total_kb * random.uniform(0.35, 0.65))
+        meminfo_cmd = (
+            f"printf 'MemTotal:       {total_kb} kB\\n"
+            f"MemFree:        {int(avail_kb * 0.3)} kB\\n"
+            f"MemAvailable:   {avail_kb} kB\\n"
+            f"Buffers:        {random.randint(50000, 150000)} kB\\n"
+            f"Cached:         {int(avail_kb * 0.4)} kB\\n"
+            f"SwapTotal:      {total_kb} kB\\n"
+            f"SwapFree:       {int(total_kb * 0.9)} kB\\n"
+            "' > /dev/.sc/meminfo; "
+            "chmod 444 /dev/.sc/meminfo; "
+            "umount /proc/meminfo 2>/dev/null; "
+            "mount --bind /dev/.sc/meminfo /proc/meminfo 2>/dev/null"
+        )
+        ok_mem, _ = self._sh(meminfo_cmd, timeout=10)
+        self._record("proc_meminfo", ok_mem, f"{ram_gb}GB RAM bind-mount")
 
     # ─── PHASE 15: CAMERA HARDWARE ───────────────────────────────────
 
@@ -2264,36 +2400,52 @@ class AnomalyPatcher:
 
         # ── Samsung-specific properties ────────────────────────────────
         if brand == "samsung":
+            oneui_ver = "70100" if preset.android_version == "15" else "60100"
+            is_ultra = "ultra" in preset.name.lower()
             knox_props = {
-                # Knox security — checked by Samsung Pay, Knox VPN, Samsung Health
-                "ro.boot.knox_status": "0x0",
-                "ro.boot.warranty_bit": "0",
+                # Knox security — MUST report active for Samsung Pay/Health/Wallet
+                # 0x0 = disabled (defeats Samsung ecosystem), 0x1 = active (normal consumer),
+                # 0x6 = Knox Vault active (S21+). Use 0x1 for broad compat.
+                "ro.boot.knox_status": "0x1",
+                "ro.boot.warranty_bit": "0",  # 0 = warranty intact (critical)
                 "ro.boot.enable_dm_verity": "1",
                 "ro.knox.fips.approved.mode": "0",
+                # Knox Warranty Bit v2 (S24+) — 0 = pristine, 1 = tripped
+                "ro.boot.knox.warranty_bit_v2": "0",
+                # Knox TIMA — Trusted Integrity Measurement Architecture
+                "ro.config.tima": "1",
+                "ro.config.timaversion": "4.0.0",
+                "ro.config.knox": "v40",  # Knox version string (v40 = Knox 3.9+)
+                "ro.knox.enhance.zygote.aslr": "1",
+                "ro.knox.process.dex_preopt": "0",
+                # Knox Guard / KPE (Knox Platform for Enterprise)
+                "ro.boot.knoxguard": "0",
                 # Samsung build identity
                 "ro.product.first_api_level": "31",
                 "ro.csc.country_code": "USA",
                 "ro.csc.sales_code": "XAA",  # US unlocked SKU
                 "ro.csc.carrier_id": "0",
                 # One UI version — must match Android version
-                "ro.build.version.oneui": "70100" if preset.android_version == "15" else "60100",
-                # Samsung Secure Folder / Knox container
-                "ro.config.knox": "0",  # knox_enabled=0 avoids Knox enrollment prompts
-                "ro.knox.process.dex_preopt": "0",
+                "ro.build.version.oneui": oneui_ver,
                 # Samsung hardware features
                 "ro.hardware.chipname": preset.board.upper(),
                 "ro.hardware.egl": "adreno",
                 "ro.hardware.vulkan": "adreno",
                 # Samsung DeX — expected on Ultra/Note class devices
-                "ro.enable.dex": "1" if "ultra" in preset.name.lower() else "0",
+                "ro.enable.dex": "1" if is_ultra else "0",
                 # Samsung unique identifiers
                 "ro.ril.mipi.number": "1",
                 "ro.ril.enable.pre_r8fd": "1",
                 # S-Pen detection (S25 Ultra has S-Pen)
-                "ro.hardware.pen": "1" if "ultra" in preset.name.lower() else "0",
+                "ro.hardware.pen": "1" if is_ultra else "0",
+                # Samsung SEAndroid enforcement
+                "ro.boot.seandroid.enforce": "1",
+                # eSE / NFC secure element (needed for Samsung Pay HCE)
+                "nfc.ese.present": "true",
+                "nfc.uicc.present": "true",
             }
             self._batch_resetprop(knox_props)
-            self._record("oem_samsung_knox", True, f"Knox props + One UI {knox_props['ro.build.version.oneui']}")
+            self._record("oem_samsung_knox", True, f"Knox v40 active + One UI {oneui_ver}")
 
             # Samsung-specific settings
             self._sh(
@@ -2344,6 +2496,29 @@ class AnomalyPatcher:
             }
             self._batch_resetprop(oem_props)
             self._record("oem_xiaomi_props", True, "MIUI 14 props injected")
+
+        # ── Cross-partition fingerprint consistency (ALL brands) ──────
+        # Modern RASP checks that ro.build.fingerprint matches across
+        # system, vendor, and product partitions. Mismatch = 99% detection.
+        fp = preset.fingerprint
+        fp_props = {
+            "ro.build.fingerprint": fp,
+            "ro.system.build.fingerprint": fp,
+            "ro.vendor.build.fingerprint": fp,
+            "ro.product.build.fingerprint": fp,
+            "ro.odm.build.fingerprint": fp,
+            "ro.bootimage.build.fingerprint": fp,
+        }
+        self._batch_resetprop(fp_props)
+        # Verify consistency
+        mismatches = []
+        for prop in fp_props:
+            actual = self._getprop(prop)
+            if actual != fp:
+                mismatches.append(prop)
+        consistent = len(mismatches) == 0
+        self._record("oem_fingerprint_consistency", consistent,
+                      f"OK" if consistent else f"MISMATCH: {','.join(mismatches)}")
 
     # ─── PHASE 26: DEFAULT SYSTEM CONFIGURATION ──────────────────────
 
@@ -2817,7 +2992,7 @@ class AnomalyPatcher:
         with self._timed_phase("12_sensors"):
             self._patch_sensors(preset)
         with self._timed_phase("13_bluetooth"):
-            self._patch_bluetooth()
+            self._patch_bluetooth(preset)
         with self._timed_phase("14_proc_info"):
             self._patch_proc_info(preset)
         with self._timed_phase("15_camera"):
@@ -2879,6 +3054,30 @@ class AnomalyPatcher:
         if lockdown:
             with self._timed_phase("29_adb_concealment"):
                 self._patch_adb_concealment()
+
+        # ── Post-patch mount table health check ──
+        # Ensure bind-mounts haven't accumulated beyond safe limits.
+        # >200 mountinfo entries is suspicious; >500 is catastrophic detection.
+        _, mi_count = self._sh("wc -l /proc/self/mountinfo 2>/dev/null")
+        mount_lines = 0
+        if mi_count:
+            parts = mi_count.strip().split()
+            if parts and parts[0].isdigit():
+                mount_lines = int(parts[0])
+        if mount_lines > 200:
+            logger.warning(f"Mount table bloat detected: {mount_lines} entries — re-cleaning")
+            self._cleanup_old_mounts()
+            self._scrub_proc_mounts()
+            _, mi_after = self._sh("wc -l /proc/self/mountinfo 2>/dev/null")
+            mount_after = 0
+            if mi_after:
+                parts = mi_after.strip().split()
+                if parts and parts[0].isdigit():
+                    mount_after = int(parts[0])
+            self._record("mount_health", mount_after < 200,
+                          f"after cleanup: {mount_after} entries (was {mount_lines})")
+        else:
+            self._record("mount_health", True, f"{mount_lines} entries (healthy)")
 
         elapsed = time.time() - t_start
         passed = sum(1 for r in self._results if r.success)
@@ -3005,7 +3204,7 @@ class AnomalyPatcher:
         with self._timed_phase("12_sensors"):
             self._patch_sensors(preset)
         with self._timed_phase("13_bluetooth"):
-            self._patch_bluetooth()
+            self._patch_bluetooth(preset)
         with self._timed_phase("14_proc_info"):
             self._patch_proc_info(preset)
         with self._timed_phase("15_camera"):

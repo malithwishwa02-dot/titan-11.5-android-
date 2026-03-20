@@ -227,7 +227,10 @@ def generate_dpan(card_number: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# EMV SESSION KEY GENERATION (V12: W-1 — Real TDES-derived LUK)
+# EMV SESSION KEY GENERATION (V12: W-1 — HMAC-based LUK derivation)
+# Uses HMAC-SHA256 truncated to 16 bytes. Matches 3DES key length but
+# is not actual 3DES — sufficient for DB population, NOT for live
+# terminal cryptographic verification.
 # ═══════════════════════════════════════════════════════════════════════
 
 def _derive_luk(dpan: str, atc: int, mdk_seed: Optional[bytes] = None) -> bytes:
@@ -933,6 +936,14 @@ class WalletProvisioner:
                 "[ -n \"$vuid\" ] && "
                 "iptables -C OUTPUT -m owner --uid-owner $vuid -j DROP 2>/dev/null || "
                 "iptables -I OUTPUT -m owner --uid-owner $vuid -j DROP 2>/dev/null")
+            # Persist iptables rules across reboot via init script
+            _adb_shell(self.target,
+                "mkdir -p /data/adb 2>/dev/null; "
+                "iptables-save > /data/adb/iptables.rules 2>/dev/null; "
+                "mkdir -p /system/etc/init.d 2>/dev/null; "
+                "echo '#!/system/bin/sh' > /system/etc/init.d/98-titan-iptables.sh; "
+                "echo 'iptables-restore < /data/adb/iptables.rules 2>/dev/null' >> /system/etc/init.d/98-titan-iptables.sh; "
+                "chmod 755 /system/etc/init.d/98-titan-iptables.sh 2>/dev/null")
             _adb_shell(self.target,
                 "am force-stop com.android.vending")
             logger.info(f"  Play Store billing: {network_info['name']} ****{last4} "

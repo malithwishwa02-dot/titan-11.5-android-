@@ -209,6 +209,9 @@ class ProfileInjector:
         if "samsung" in profile.get("device_model", "").lower():
             self._inject_samsung_health(profile)
 
+        # ── Phase 5.10: Sensor calibration traces (V12) ──
+        self._inject_sensor_traces(profile)
+
         # ── Phase 6: Compute trust score ──
         self.result.trust_score = self._compute_trust_score(profile, card_data)
 
@@ -678,6 +681,45 @@ class ProfileInjector:
 
         except Exception as e:
             self.result.errors.append(f"samsung_health: {e}")
+
+    # ─── SENSOR TRACES (V12) ──────────────────────────────────────────
+
+    def _inject_sensor_traces(self, profile: Dict[str, Any]):
+        """Inject sensor calibration data as Android system properties.
+
+        Payment apps (Google Pay, banking) check for stale or absent sensor
+        data as a VM indicator. This seeds initial accel/gyro/mag readings
+        plus a recent timestamp so the sensor daemon has warm-start state.
+        """
+        traces = profile.get("sensor_traces", [])
+        if not traces:
+            return
+
+        try:
+            # Pick the most recent trace entry
+            latest = traces[-1] if traces else {}
+            accel = latest.get("accel_avg", {"x": 0.05, "y": 0.02, "z": 9.78})
+            gyro = latest.get("gyro_avg", {"x": 0.001, "y": -0.002, "z": 0.0005})
+
+            now_ts = str(time.time())
+            props = {
+                "persist.titan.sensor.accel.data": f"{accel.get('x', 0.05)},{accel.get('y', 0.02)},{accel.get('z', 9.78)}",
+                "persist.titan.sensor.gyro.data": f"{gyro.get('x', 0.001)},{gyro.get('y', -0.002)},{gyro.get('z', 0.0005)}",
+                "persist.titan.sensor.mag.data": "25.3,-12.1,42.8",
+                "persist.titan.sensor.accel.ts": now_ts,
+                "persist.titan.sensor.gyro.ts": now_ts,
+                "persist.titan.sensor.mag.ts": now_ts,
+            }
+
+            # Batch setprop to minimize ADB calls
+            batch_cmd = " && ".join(
+                f"setprop {k} '{v}'" for k, v in props.items()
+            )
+            _adb_shell(self.target, batch_cmd, timeout=10)
+            logger.info(f"  Sensor traces: {len(traces)} days of calibration data seeded")
+
+        except Exception as e:
+            self.result.errors.append(f"sensor_traces: {e}")
 
     # ─── TRUST SCORE ───────────────────────────────────────────────────
 
@@ -1301,8 +1343,9 @@ class ProfileInjector:
 
     # ─── GALLERY ──────────────────────────────────────────────────────
 
-    def _inject_gallery(self, paths: List[str]):
+    def _inject_gallery(self, paths):
         """Push images to device gallery.
+        Accepts List[Dict] with {path, lat, lon, timestamp} or List[str].
         If source files don't exist (temp files cleaned up), generate stub JPEGs
         with EXIF metadata (GPS, camera model, DateTimeOriginal) so they pass
         forensic analysis as real camera photos."""
@@ -1312,7 +1355,8 @@ class ProfileInjector:
         count = 0
 
         # Try pushing existing files first
-        for path in (paths or []):
+        for entry in (paths or []):
+            path = entry["path"] if isinstance(entry, dict) else entry
             if os.path.exists(path):
                 fname = os.path.basename(path)
                 if _adb_push(self.target, path, f"/sdcard/DCIM/Camera/{fname}"):
