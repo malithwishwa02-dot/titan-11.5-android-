@@ -313,6 +313,7 @@ class ProfileInjector:
                 cvv=card_data.get("cvv", ""),
                 persona_email=profile.get("persona_email", ""),
                 persona_name=profile.get("persona_name", ""),
+                country=profile.get("country", "US"),
             )
             self.result.wallet_ok = wallet_result.success_count >= 3
             if wallet_result.errors:

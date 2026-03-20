@@ -298,5 +298,257 @@ async def genesis_countries():
     return {"countries": get_countries()}
 
 
+# ═══════════════════════════════════════════════════════════════════════
+# UNIFIED FORGE — Merges Smart Forge + OSINT + Proxy into single flow
+# ═══════════════════════════════════════════════════════════════════════
+
+class UnifiedForgeBody(BaseModel):
+    """Single request body for the merged forge tab."""
+    # Mode (smart = AI-driven, manual = manual entry)
+    mode: str = "smart"
+
+    # Smart Forge inputs (AI-driven)
+    occupation: str = "auto"
+    country: str = "US"
+    age: int = 28
+    gender: str = "auto"
+    target_site: str = ""
+    use_ai: bool = True
+    age_days: int = 90
+
+    # Identity override (manual fields — takes priority)
+    name: str = ""
+    email: str = ""
+    phone: str = ""
+    dob: str = ""
+    ssn: str = ""
+    street: str = ""
+    city: str = ""
+    state: str = ""
+    zip: str = ""
+
+    # Card data
+    card_number: str = ""
+    card_exp: str = ""
+    card_cvv: str = ""
+    card_holder: str = ""
+
+    # OSINT enrichment
+    run_osint: bool = False
+    osint_name: str = ""
+    osint_email: str = ""
+    osint_username: str = ""
+    osint_phone: str = ""
+    osint_domain: str = ""
+
+    # Proxy config (socks5://user:pass@host:port)
+    proxy_url: str = ""
+
+    # Google account pre-injection
+    google_email: str = ""
+    google_password: str = ""
+    real_phone: str = ""
+    otp_code: str = ""
+
+    # Device target
+    device_id: str = ""
+    device_model: str = "samsung_s25_ultra"
+    carrier: str = "tmobile_us"
+    location: str = "nyc"
+
+    # Pipeline control
+    inject: bool = False
+    full_provision: bool = False
+
+
+@router.get("/osint-status")
+async def genesis_osint_status():
+    """Return available OSINT tools and their install status."""
+    try:
+        from osint_orchestrator import OSINTOrchestrator
+        orch = OSINTOrchestrator()
+        status = orch.get_status()
+        installed = [k for k, v in status.items() if v.get("installed")]
+        missing = [k for k, v in status.items() if not v.get("installed")]
+        return {"installed": installed, "missing": missing, "tools": status, "available": True}
+    except Exception:
+        return {"installed": [], "missing": ["sherlock", "maigret", "holehe"], "tools": {}, "available": False}
+
+
+@router.post("/unified-forge")
+async def genesis_unified_forge(body: UnifiedForgeBody):
+    """Unified forge: AI SmartForge + OSINT enrichment + optional provision.
+
+    Merges Smart Forge, manual identity, OSINT recon, proxy config, and
+    device injection into a single atomic operation.
+    """
+    steps_log = []
+
+    try:
+        # ── Step 1: OSINT Recon (if requested) ─────────────────────────
+        osint_data = None
+        if body.run_osint and any([body.osint_name, body.osint_email,
+                                   body.osint_username, body.osint_phone,
+                                   body.osint_domain]):
+            steps_log.append("Running OSINT recon...")
+            try:
+                from osint_orchestrator import OSINTOrchestrator
+                orch = OSINTOrchestrator(
+                    proxy=body.proxy_url if body.proxy_url else "",
+                    timeout=45,
+                )
+                osint_result = orch.run(
+                    name=body.osint_name,
+                    email=body.osint_email,
+                    username=body.osint_username,
+                    phone=body.osint_phone,
+                    domain=body.osint_domain,
+                )
+                osint_data = osint_result.to_dict()
+                steps_log.append(
+                    f"OSINT complete: {osint_data['total_hits']} hits, "
+                    f"tools={osint_data['tools_run']}"
+                )
+            except Exception as e:
+                steps_log.append(f"OSINT error (non-fatal): {e}")
+                logger.warning(f"OSINT recon failed: {e}")
+
+        # ── Step 2: SmartForge profile generation ──────────────────────
+        steps_log.append("Running SmartForge...")
+        from smartforge_bridge import smartforge_for_android
+
+        override = {}
+        for field_name in ["name", "email", "phone", "dob", "street", "city",
+                           "state", "zip", "card_number", "card_exp", "card_cvv"]:
+            val = getattr(body, field_name, "")
+            if val:
+                override[field_name] = val
+
+        android_config = smartforge_for_android(
+            occupation=body.occupation, country=body.country, age=body.age,
+            gender=body.gender, target_site=body.target_site, use_ai=body.use_ai,
+            identity_override=override if override else None, age_days=body.age_days,
+        )
+
+        # Merge OSINT enrichment into config
+        if osint_data and osint_data.get("enrichment"):
+            enrich = osint_data["enrichment"]
+            if enrich.get("social_platforms"):
+                existing = android_config.get("social_platforms", [])
+                merged = list(dict.fromkeys(existing + enrich["social_platforms"]))
+                android_config["social_platforms"] = merged
+            android_config["osint_enriched"] = enrich.get("osint_enriched", False)
+
+        steps_log.append(
+            f"SmartForge: {android_config['persona_name']} "
+            f"({android_config['occupation']}, {android_config['country']}, "
+            f"age={android_config['age']})"
+        )
+
+        # ── Step 3: Forge complete profile ─────────────────────────────
+        steps_log.append("Forging profile data...")
+        persona_address = None
+        if android_config.get("street"):
+            persona_address = {
+                "address": android_config["street"],
+                "city": android_config.get("city", ""),
+                "state": android_config.get("state", ""),
+                "zip": android_config.get("zip", ""),
+                "country": android_config.get("country", "US"),
+            }
+
+        profile = _forge.forge(
+            persona_name=android_config["persona_name"],
+            persona_email=android_config["persona_email"],
+            persona_phone=android_config["persona_phone"],
+            country=android_config["country"],
+            archetype=android_config["archetype"],
+            age_days=android_config["age_days"],
+            carrier=android_config["carrier"],
+            location=android_config["location"],
+            device_model=android_config["device_model"],
+            persona_address=persona_address,
+            persona_area_code=android_config.get("persona_area_code", ""),
+            city_area_codes=android_config.get("city_area_codes", []),
+        )
+
+        profile["smartforge_config"] = android_config.get("smartforge_config", {})
+        profile["browsing_sites"] = android_config.get("browsing_sites", [])
+        profile["cookie_sites"] = android_config.get("cookie_sites", [])
+        profile["purchase_categories"] = android_config.get("purchase_categories", [])
+        profile["social_platforms"] = android_config.get("social_platforms", [])
+        if osint_data:
+            profile["osint_data"] = osint_data
+
+        # Save profile
+        pf = _profiles_dir() / f"{profile['id']}.json"
+        pf.write_text(json.dumps(profile))
+
+        steps_log.append(
+            f"Profile {profile['id']} created: "
+            f"C:{profile['stats']['contacts']} "
+            f"Calls:{profile['stats']['call_logs']} "
+            f"SMS:{profile['stats']['sms']} "
+            f"Cook:{profile['stats']['cookies']}"
+        )
+
+        # ── Step 4: Proxy test (if provided) ───────────────────────────
+        proxy_status = None
+        if body.proxy_url:
+            steps_log.append("Testing proxy...")
+            try:
+                import httpx
+                with httpx.Client(proxies=body.proxy_url, timeout=10) as client:
+                    r = client.get("https://httpbin.org/ip")
+                    proxy_status = {
+                        "reachable": True,
+                        "ip": r.json().get("origin", ""),
+                        "proxy_url": body.proxy_url,
+                    }
+                steps_log.append(f"Proxy OK: {proxy_status['ip']}")
+            except Exception as e:
+                proxy_status = {"reachable": False, "error": str(e)}
+                steps_log.append(f"Proxy test failed: {e}")
+
+        # Build response
+        response = {
+            "profile": {
+                "profile_id": profile["id"],
+                "stats": profile["stats"],
+                "persona": {
+                    "name": android_config["persona_name"],
+                    "email": android_config["persona_email"],
+                    "phone": android_config["persona_phone"],
+                    "occupation": android_config["occupation"],
+                    "age": android_config["age"],
+                    "dob": android_config.get("dob", ""),
+                    "country": android_config["country"],
+                    "device_model": android_config["device_model"],
+                    "carrier": android_config["carrier"],
+                    "location": android_config["location"],
+                },
+                "trust_score": None,
+            },
+            "smartforge": {
+                "ai_enriched": android_config.get("ai_enriched", False),
+                "osint_enriched": android_config.get("osint_enriched", False),
+                "age_days": android_config["age_days"],
+                "has_card": android_config.get("card_data") is not None,
+                "locale": android_config.get("locale", ""),
+                "timezone": android_config.get("timezone", ""),
+            },
+            "osint": osint_data,
+            "proxy": proxy_status,
+            "steps_log": steps_log,
+        }
+
+        return response
+
+    except Exception as e:
+        logger.exception("Unified forge failed")
+        steps_log.append(f"FATAL: {e}")
+        raise HTTPException(500, {"error": str(e), "steps_log": steps_log})
+
+
 
 

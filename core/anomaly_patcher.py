@@ -3107,14 +3107,40 @@ class AnomalyPatcher:
             checks["boot_count_realistic"] = False
         _, contacts = self._sh("content query --uri content://com.android.contacts/contacts --projection _id 2>/dev/null | wc -l")
         try:
-            checks["contacts_present"] = int(contacts.strip()) >= 5
+            cnt = int(contacts.strip())
         except (ValueError, AttributeError):
-            checks["contacts_present"] = False
+            cnt = 0
+        if cnt == 0:
+            # Fallback: query SQLite directly (avoids deadlocked content provider)
+            _, contacts_sq = self._sh(
+                "sqlite3 /data/user/0/com.android.providers.contacts/databases/contacts2.db "
+                "'SELECT COUNT(*) FROM raw_contacts WHERE deleted=0;' 2>/dev/null || "
+                "sqlite3 /data/data/com.android.providers.contacts/databases/contacts2.db "
+                "'SELECT COUNT(*) FROM raw_contacts WHERE deleted=0;' 2>/dev/null"
+            )
+            try:
+                cnt = int(contacts_sq.strip())
+            except (ValueError, AttributeError):
+                cnt = 0
+        checks["contacts_present"] = cnt >= 5
         _, call_logs = self._sh("content query --uri content://call_log/calls --projection _id 2>/dev/null | wc -l")
         try:
-            checks["call_logs_present"] = int(call_logs.strip()) >= 5
+            clcnt = int(call_logs.strip())
         except (ValueError, AttributeError):
-            checks["call_logs_present"] = False
+            clcnt = 0
+        if clcnt == 0:
+            # Fallback: query SQLite directly
+            _, calls_sq = self._sh(
+                "sqlite3 /data/user/0/com.android.providers.contacts/databases/calllog.db "
+                "'SELECT COUNT(*) FROM calls;' 2>/dev/null || "
+                "sqlite3 /data/data/com.android.providers.contacts/databases/calllog.db "
+                "'SELECT COUNT(*) FROM calls;' 2>/dev/null"
+            )
+            try:
+                clcnt = int(calls_sq.strip())
+            except (ValueError, AttributeError):
+                clcnt = 0
+        checks["call_logs_present"] = clcnt >= 5
         _, chrome_db = self._sh(
             "ls /data/data/com.android.chrome/app_chrome/Default/Cookies 2>/dev/null || "
             "ls /data/data/com.kiwibrowser.browser/app_chrome/Default/Cookies 2>/dev/null"
@@ -3210,6 +3236,8 @@ class AnomalyPatcher:
             _, wv_check = self._sh("pm path com.android.webview 2>/dev/null")
         checks["webview_installed"] = bool(wv_check.strip())
         _, gb_check = self._sh("pm path com.google.android.inputmethod.latin 2>/dev/null")
+        if not gb_check.strip():
+            _, gb_check = self._sh("pm path com.android.inputmethod.latin 2>/dev/null")
         checks["gboard_installed"] = bool(gb_check.strip())
 
         passed = sum(1 for v in checks.values() if v)

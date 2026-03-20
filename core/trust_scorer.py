@@ -15,13 +15,19 @@ logger = logging.getLogger("titan.trust-scorer")
 def _resolve_browser_data_path(adb_target: str) -> str:
     """Detect installed Chromium browser and return its Default data path.
     Chrome can't install on vanilla AOSP Cuttlefish (needs TrichromeLibrary),
-    so Kiwi Browser is used as a drop-in replacement."""
+    so Kiwi Browser is used as a drop-in replacement.
+    Falls back to checking data directories when pm service is unavailable."""
     candidates = [
         ("com.android.chrome", "/data/data/com.android.chrome/app_chrome/Default"),
         ("com.kiwibrowser.browser", "/data/data/com.kiwibrowser.browser/app_chrome/Default"),
     ]
     for pkg, data_path in candidates:
         out = adb_shell(adb_target, f"pm path {pkg} 2>/dev/null")
+        if out and out.strip():
+            return data_path
+    # pm service may be unavailable; check for data directories with actual content
+    for pkg, data_path in candidates:
+        out = adb_shell(adb_target, f"ls {data_path}/Cookies {data_path}/History 2>/dev/null")
         if out and out.strip():
             return data_path
     return candidates[0][1]  # fallback to Chrome path
@@ -51,7 +57,9 @@ def compute_trust_score(adb_target: str) -> Dict[str, Any]:
         score += 15
 
     # 2. Contacts populated (weight: 8)
-    contacts_n = _safe_int(adb_shell(t, "content query --uri content://contacts/phones --projection _id | wc -l"))
+    contacts_n = _safe_int(adb_shell(t, "content query --uri content://contacts/phones --projection _id 2>/dev/null | wc -l"))
+    if contacts_n == 0:
+        contacts_n = _safe_int(adb_shell(t, "sqlite3 /data/data/com.android.providers.contacts/databases/contacts2.db 'SELECT COUNT(*) FROM raw_contacts' 2>/dev/null"))
     checks["contacts"] = {"count": contacts_n, "weight": 8}
     if contacts_n >= 5:
         score += 8
@@ -73,6 +81,8 @@ def compute_trust_score(adb_target: str) -> Dict[str, Any]:
 
     # 5. Gallery has photos (weight: 5)
     gallery_n = _safe_int(adb_shell(t, "ls /sdcard/DCIM/Camera/*.jpg 2>/dev/null | wc -l"))
+    if gallery_n == 0:
+        gallery_n = _safe_int(adb_shell(t, "ls /data/media/0/DCIM/Camera/*.jpg 2>/dev/null | wc -l"))
     checks["gallery"] = {"count": gallery_n, "weight": 5}
     if gallery_n >= 3:
         score += 5
