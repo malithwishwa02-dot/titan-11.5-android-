@@ -184,14 +184,19 @@ class GoogleAccountInjector:
             conn = sqlite3.connect(tmp_path)
             c = conn.cursor()
 
-            # Create tables if they don't exist
+            # Match exact Android 14 CE schema (user_version=10)
+            # CRITICAL: Schema must match CeDatabaseHelper.onCreate() exactly
+            # or system_server will crash with "table accounts already exists"
+            c.execute("""
+                CREATE TABLE IF NOT EXISTS android_metadata (locale TEXT)
+            """)
             c.execute("""
                 CREATE TABLE IF NOT EXISTS accounts (
                     _id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     type TEXT NOT NULL,
-                    previous_name TEXT DEFAULT NULL,
-                    last_password_entry_time_millis_epoch INTEGER DEFAULT 0
+                    password TEXT,
+                    UNIQUE(name,type)
                 )
             """)
 
@@ -200,20 +205,23 @@ class GoogleAccountInjector:
                     _id INTEGER PRIMARY KEY AUTOINCREMENT,
                     accounts_id INTEGER NOT NULL,
                     type TEXT NOT NULL,
-                    authtoken TEXT NOT NULL,
-                    FOREIGN KEY (accounts_id) REFERENCES accounts(_id)
+                    authtoken TEXT,
+                    UNIQUE (accounts_id, type)
                 )
             """)
 
             c.execute("""
                 CREATE TABLE IF NOT EXISTS extras (
                     _id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    accounts_id INTEGER NOT NULL,
+                    accounts_id INTEGER,
                     key TEXT NOT NULL,
                     value TEXT,
-                    FOREIGN KEY (accounts_id) REFERENCES accounts(_id)
+                    UNIQUE(accounts_id,key)
                 )
             """)
+
+            # Set correct user_version so Android doesn't call onCreate()
+            c.execute("PRAGMA user_version = 10")
 
             # Check if account already exists
             c.execute("SELECT _id FROM accounts WHERE name=? AND type='com.google'", (email,))
@@ -221,23 +229,11 @@ class GoogleAccountInjector:
             if row:
                 account_id = row[0]
             else:
-                # Detect schema — Android 14 uses different columns than older versions
-                cols = [r[1] for r in c.execute("PRAGMA table_info(accounts)").fetchall()]
-                if "last_password_entry_time_millis_epoch" in cols:
-                    c.execute(
-                        "INSERT INTO accounts (name, type, last_password_entry_time_millis_epoch) VALUES (?, 'com.google', ?)",
-                        (email, int(time.time() * 1000)),
-                    )
-                elif "password" in cols:
-                    c.execute(
-                        "INSERT INTO accounts (name, type, password) VALUES (?, 'com.google', '')",
-                        (email,),
-                    )
-                else:
-                    c.execute(
-                        "INSERT INTO accounts (name, type) VALUES (?, 'com.google')",
-                        (email,),
-                    )
+                # CE schema uses `password` column (not previous_name/last_password_entry)
+                c.execute(
+                    "INSERT INTO accounts (name, type, password) VALUES (?, 'com.google', '')",
+                    (email,),
+                )
                 account_id = c.lastrowid
 
             # Insert auth tokens — expanded matrix covering core Google scopes
@@ -313,15 +309,20 @@ class GoogleAccountInjector:
             conn = sqlite3.connect(tmp_path)
             c = conn.cursor()
 
+            # DE schema uses previous_name + last_password_entry (user_version=3)
             c.execute("""
                 CREATE TABLE IF NOT EXISTS accounts (
-                    _id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    _id INTEGER PRIMARY KEY,
                     name TEXT NOT NULL,
                     type TEXT NOT NULL,
-                    previous_name TEXT DEFAULT NULL,
-                    last_password_entry_time_millis_epoch INTEGER DEFAULT 0
+                    previous_name TEXT,
+                    last_password_entry_time_millis_epoch INTEGER DEFAULT 0,
+                    UNIQUE(name,type)
                 )
             """)
+
+            # Set correct user_version for DE database
+            c.execute("PRAGMA user_version = 3")
 
             c.execute("SELECT _id FROM accounts WHERE name=? AND type='com.google'", (email,))
             if not c.fetchone():

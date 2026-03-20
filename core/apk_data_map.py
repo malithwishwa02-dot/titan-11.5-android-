@@ -379,7 +379,7 @@ APK_DATA_MAP: Dict[str, Dict[str, Any]] = {
         "shared_prefs": {
             "chase_prefs.xml": {
                 "device_registered": "true",
-                "device_trust_token": "{random_hex_32}",
+                "device_trust_token": "true",
                 "biometric_enrolled": "true",
                 "push_notifications": "true",
                 "quick_balance_enabled": "true",
@@ -387,7 +387,6 @@ APK_DATA_MAP: Dict[str, Dict[str, Any]] = {
                 "remember_me": "true",
                 "username": "{persona_email}",
                 # Provincial Injection Protocol v3.0 - US Bypass
-                "device_trust_token": "true",
                 "biometric_enabled": "true",
                 "skip_otp_challenge": "true",
             },
@@ -413,9 +412,7 @@ APK_DATA_MAP: Dict[str, Dict[str, Any]] = {
                 "push_enabled": "true",
                 "device_id": "{uuid4}",
                 # Provincial Injection Protocol v3.0 - US Bypass
-                "phone_verified": "true",
-                "face_id_enabled": "true",
-                "device_id": "{uuid4}",
+                "device_trust_token": "true",
             },
         },
         "databases": {},
@@ -460,7 +457,6 @@ APK_DATA_MAP: Dict[str, Dict[str, Any]] = {
                 "push_enabled": "true",
                 "last_active": "{last_open_ts}",
                 # Provincial Injection Protocol v3.0 - US/UK Bypass
-                "one_touch_enabled": "true",
                 "login_complete": "true",
                 "locale_country": "{country}",
                 "locale_language": "en",
@@ -506,8 +502,8 @@ APK_DATA_MAP: Dict[str, Dict[str, Any]] = {
                 "account_holder": "{persona_name}",
                 "push_enabled": "true",
                 # Provincial Injection Protocol v3.0 - UK Bypass
-                "device_trusted": "true",
-                "pin_set": "true",
+                "magic_link_verified": "true",
+                "device_confirmation_completed": "true",
             },
         },
         "databases": {},
@@ -530,8 +526,8 @@ APK_DATA_MAP: Dict[str, Dict[str, Any]] = {
                 "push_enabled": "true",
                 "device_id": "{uuid4}",
                 # Provincial Injection Protocol v3.0 - UK Bypass
-                "passcode_set": "true",
-                "phone_verified": "true",
+                "device_confirmation_completed": "true",
+                "magic_link_verified": "true",
             },
         },
         "databases": {},
@@ -595,9 +591,31 @@ APK_DATA_MAP: Dict[str, Dict[str, Any]] = {
                 "one_click_enabled": "true",
                 "push_enabled": "true",
                 "device_id": "{uuid4}",
-                # Provincial Injection Protocol v3.0 - US/UK Bypass
-                "one_click_enabled": "true",
-                "marketplace": "{country}",
+                # Provincial Injection Protocol v3.0 - US/UK E-Com Bypass
+                "prime_enabled": "true",
+                "default_payment_set": "true",
+                "address_book_populated": "true",
+            },
+        },
+        "databases": {},
+    },
+
+    "com.ebay.mobile": {
+        "name": "eBay",
+        "account_type": "email",
+        "login_required": True,
+        "has_payment": True,
+        "trust_weight": 6,
+        "data_dir": "/data/data/com.ebay.mobile",
+        "shared_prefs": {
+            "ebay_prefs.xml": {
+                "is_logged_in": "true",
+                "email": "{persona_email}",
+                "display_name": "{first_name}",
+                "device_id": "{uuid4}",
+                "push_enabled": "true",
+                "payment_method_set": "true",
+                "one_tap_checkout": "true",
             },
         },
         "databases": {},
@@ -800,9 +818,33 @@ APK_DATA_MAP: Dict[str, Dict[str, Any]] = {
                 "push_enabled": "true",
                 "device_id": "{uuid4}",
                 "2fa_enabled": "true",
-                # Provincial Injection Protocol v3.0 - US Bypass
-                "2fa_enabled": "true",
+                # Provincial Injection Protocol v3.0 - Crypto Bypass
+                "device_confirmation_completed": "true",
+                "user_active_session": "{random_hex_32}",
+            },
+        },
+        "databases": {},
+    },
+
+    "com.binance.dev": {
+        "name": "Binance",
+        "account_type": "email",
+        "login_required": True,
+        "has_payment": True,
+        "trust_weight": 5,
+        "data_dir": "/data/data/com.binance.dev",
+        "shared_prefs": {
+            "binance_prefs.xml": {
                 "is_logged_in": "true",
+                "email": "{persona_email}",
+                "biometric_enabled": "true",
+                "push_enabled": "true",
+                "device_id": "{uuid4}",
+                # Provincial Injection Protocol v3.0 - Crypto Bypass
+                "device_confirmation_completed": "true",
+                "2fa_enabled": "true",
+                "user_active_session": "{random_hex_32}",
+                "kyc_verified": "true",
             },
         },
         "databases": {},

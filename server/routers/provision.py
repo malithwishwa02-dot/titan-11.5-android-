@@ -718,6 +718,7 @@ def _run_pipeline_job(job_id: str, adb_target: str, body: PipelineBody, device_i
                 persona_email=body.google_email or body.email,
                 persona_name=body.name or "",
                 country=getattr(body, 'country', 'US') or 'US',
+                zero_auth=True,
             )
             wp_ok = sum([
                 getattr(wp_result, 'google_pay_ok', False),
@@ -734,8 +735,40 @@ def _run_pipeline_job(job_id: str, adb_target: str, body: PipelineBody, device_i
         log("Phase 6 — Wallet: skipped (no card data)")
         _pl_phase(job_id, 6, "skipped", "no card")
 
-    # ── Phase 7: Post-Harden ────────────────────────────────────────────
+    # ── Phase 7: Provincial Layering (V3 App Bypass) ───────────────────
     _pl_phase(job_id, 7, "running")
+    log("Phase 7 — Provincial Layering: injecting V3 app bypass configs...")
+    try:
+        from app_data_forger import AppDataForger
+        app_forger = AppDataForger(adb_target=adb_target)
+        province_country = (body.country or 'US').upper()
+        prov_targets = {
+            'US': ['com.coinbase.android', 'com.amazon.mShop.android.shopping',
+                   'com.chase.sig.android', 'com.venmo', 'com.paypal.android.p2pmobile'],
+            'GB': ['com.binance.dev', 'com.amazon.mShop.android.shopping',
+                   'com.ebay.mobile', 'com.monzo.android', 'com.revolut.revolut'],
+        }
+        targets = prov_targets.get(province_country, prov_targets['US'])
+        persona_dict = {
+            'email': body.google_email or body.email or '',
+            'name': body.name or '',
+            'phone': body.phone or '',
+            'country': province_country,
+        }
+        app_result = app_forger.forge_and_inject(
+            installed_packages=targets,
+            persona=persona_dict,
+            play_purchases=profile_data.get('play_purchases'),
+            app_installs=profile_data.get('app_installs'),
+        )
+        log(f"Phase 7 — Provincial Layering done: {app_result.injected}/{app_result.total} apps")
+        _pl_phase(job_id, 7, "done", f"{app_result.injected}/{app_result.total} apps")
+    except Exception as e:
+        log(f"Phase 7 — Provincial Layering FAILED: {e}")
+        _pl_phase(job_id, 7, "failed", str(e)[:80])
+
+    # ── Phase 8: Post-Harden ────────────────────────────────────────────
+    _pl_phase(job_id, 8, "running")
     log("Phase 7 — Post-Harden: Kiwi prefs, contacts data table, media scan...")
     try:
         # Kiwi Preferences (enables chrome_signin trust check)
@@ -773,15 +806,15 @@ def _run_pipeline_job(job_id: str, adb_target: str, body: PipelineBody, device_i
                 "am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE "
                 "-d file:///data/media/0/DCIM/Camera/ 2>/dev/null")
 
-        log("Phase 7 — Post-Harden done: Kiwi prefs written, media scan triggered")
-        _pl_phase(job_id, 7, "done", "kiwi+scan")
+        log("Phase 8 — Post-Harden done: Kiwi prefs written, media scan triggered")
+        _pl_phase(job_id, 8, "done", "kiwi+scan")
     except Exception as e:
-        log(f"Phase 7 — Post-Harden FAILED: {e}")
-        _pl_phase(job_id, 7, "failed", str(e)[:60])
+        log(f"Phase 8 — Post-Harden FAILED: {e}")
+        _pl_phase(job_id, 8, "failed", str(e)[:60])
 
-    # ── Phase 8: Attestation ────────────────────────────────────────────
-    _pl_phase(job_id, 8, "running")
-    log("Phase 8 — Attestation: checking keybox, verified boot, GSF...")
+    # ── Phase 9: Attestation ────────────────────────────────────────────
+    _pl_phase(job_id, 9, "running")
+    log("Phase 9 — Attestation: checking keybox, verified boot, GSF...")
     issues = []
     kb  = _adb_sh(adb_target, "getprop persist.titan.keybox.loaded")
     vbs = _adb_sh(adb_target, "getprop ro.boot.verifiedbootstate")
@@ -792,12 +825,12 @@ def _run_pipeline_job(job_id: str, adb_target: str, body: PipelineBody, device_i
     if bt.strip() != "user":   issues.append(f"build={bt.strip()}")
     if qemu.strip() not in ("0", ""): issues.append("qemu_exposed")
     notes = "ok" if not issues else ", ".join(issues)
-    log(f"Phase 8 — Attestation: {notes}")
-    _pl_phase(job_id, 8, "done" if not issues else "warn", notes)
+    log(f"Phase 9 — Attestation: {notes}")
+    _pl_phase(job_id, 9, "done" if not issues else "warn", notes)
 
-    # ── Phase 9: Trust Audit ────────────────────────────────────────────
-    _pl_phase(job_id, 9, "running")
-    log("Phase 9 — Trust Audit: running 14-check trust scorer...")
+    # ── Phase 10: Trust Audit ───────────────────────────────────────────
+    _pl_phase(job_id, 10, "running")
+    log("Phase 10 — Trust Audit: running 14-check trust scorer...")
     trust_score = 0
     trust_checks = {}
     try:
@@ -806,12 +839,12 @@ def _run_pipeline_job(job_id: str, adb_target: str, body: PipelineBody, device_i
         trust_score  = result.get("trust_score", 0)
         trust_checks = result.get("checks", {})
         grade = result.get("grade", "?")
-        log(f"Phase 9 — Trust Audit: {trust_score}/100 ({grade})")
+        log(f"Phase 10 — Trust Audit: {trust_score}/100 ({grade})")
         _provision_mgr.update(job_id, {"trust_score": trust_score, "trust_checks": trust_checks, "grade": grade})
-        _pl_phase(job_id, 9, "done", f"{trust_score}/100 {grade}")
+        _pl_phase(job_id, 10, "done", f"{trust_score}/100 {grade}")
     except Exception as e:
-        log(f"Phase 9 — Trust Audit FAILED: {e}")
-        _pl_phase(job_id, 9, "failed", str(e)[:60])
+        log(f"Phase 10 — Trust Audit FAILED: {e}")
+        _pl_phase(job_id, 10, "failed", str(e)[:60])
 
     # ── Final ────────────────────────────────────────────────────────────
     _provision_mgr.update(job_id, {

@@ -2157,6 +2157,34 @@ class AnomalyPatcher:
             "mount -o bind /dev/.sc/mounts_clean /proc/mounts 2>/dev/null",
             "cat /proc/self/mountinfo | grep -vE \"$FP\" > /dev/.sc/mountinfo_clean 2>/dev/null",
             "mount -o bind /dev/.sc/mountinfo_clean /proc/self/mountinfo 2>/dev/null",
+            "",
+            "# ContactsProvider crash prevention (SwiftShader Cuttlefish)",
+            "# android.process.acore can't attach within PROC_START_TIMEOUT on",
+            "# software rendering — disable to prevent infinite crash-restart loop",
+            "pm disable-user --user 0 com.android.providers.contacts 2>/dev/null",
+            "am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS 2>/dev/null",
+            "",
+            "# V12: Wallet cloud sync mitigation persistence (W-3)",
+            "# Prevent Play Store from reconciling injected COIN.xml and tapandpay.db",
+            "vuid=$(stat -c %u /data/data/com.android.vending 2>/dev/null)",
+            '[ -n "$vuid" ] && {',
+            '  iptables -C OUTPUT -m owner --uid-owner $vuid -j DROP 2>/dev/null ||',
+            '  iptables -I OUTPUT -m owner --uid-owner $vuid -j DROP 2>/dev/null',
+            '}',
+            "cmd appops set com.android.vending RUN_IN_BACKGROUND deny 2>/dev/null",
+            "cmd appops set com.android.vending RUN_ANY_IN_BACKGROUND deny 2>/dev/null",
+            "# Block GMS wallet sync to preserve tapandpay.db",
+            "gms_uid=$(stat -c %u /data/data/com.google.android.gms 2>/dev/null)",
+            '[ -n "$gms_uid" ] && {',
+            '  iptables -C OUTPUT -p tcp --dport 443 -m owner --uid-owner $gms_uid -m string --string "payments.google.com" --algo bm -j DROP 2>/dev/null ||',
+            '  iptables -I OUTPUT -p tcp --dport 443 -m owner --uid-owner $gms_uid -m string --string "payments.google.com" --algo bm -j DROP 2>/dev/null',
+            '}',
+            "# Remove wallet cache to prevent stale state detection",
+            "rm -rf /data/data/com.google.android.gms/cache/tapandpay* 2>/dev/null",
+            "",
+            "# Display override safety — reset wm overrides to use native framebuffer",
+            "wm size reset 2>/dev/null",
+            "wm density reset 2>/dev/null",
         ])
 
         script_content = "\\n".join(script_lines)
@@ -2330,10 +2358,39 @@ class AnomalyPatcher:
 
         brand = preset.brand.lower()
 
-        # ── Display density (MUST match the preset's lcd_density) ──────
-        self._sh(f"wm density {preset.lcd_density} 2>/dev/null", timeout=5)
-        self._sh(f"wm size {preset.screen_width}x{preset.screen_height} 2>/dev/null", timeout=5)
-        self._record("display_density", True, f"{preset.lcd_density}dpi @ {preset.screen_width}x{preset.screen_height}")
+        # ── Display density ──────────────────────────────────────
+        # On Cuttlefish, overriding wm size/density from preset values
+        # (e.g. 1080x2340@480) when the native framebuffer is different
+        # (e.g. 1080x2400@420) causes black screen / rendering failures
+        # on SwiftShader.  Use native values and only set props.
+        ok_sz, native_sz = self._sh("wm size 2>/dev/null")
+        ok_dn, native_dn = self._sh("wm density 2>/dev/null")
+        is_cuttlefish = False
+        if ok_sz:
+            for line in native_sz.splitlines():
+                if 'Physical' in line and 'x' in line:
+                    try:
+                        parts = line.split(':')[-1].strip().split('x')
+                        phys_w, phys_h = int(parts[0]), int(parts[1])
+                        if (phys_w != preset.screen_width or
+                                phys_h != preset.screen_height):
+                            is_cuttlefish = True
+                    except (ValueError, IndexError):
+                        pass
+        if is_cuttlefish:
+            # Reset any stale overrides — use the native framebuffer as-is
+            self._sh("wm size reset 2>/dev/null", timeout=5)
+            self._sh("wm density reset 2>/dev/null", timeout=5)
+            logger.info("Phase 26: Skipped wm size/density override "
+                        "(Cuttlefish native differs from preset)")
+            self._record("display_density", True,
+                         f"native (override skipped, preset={preset.lcd_density}dpi "
+                         f"@ {preset.screen_width}x{preset.screen_height})")
+        else:
+            self._sh(f"wm density {preset.lcd_density} 2>/dev/null", timeout=5)
+            self._sh(f"wm size {preset.screen_width}x{preset.screen_height} 2>/dev/null", timeout=5)
+            self._record("display_density", True,
+                         f"{preset.lcd_density}dpi @ {preset.screen_width}x{preset.screen_height}")
 
         # ── Screen brightness — randomized realistic level ──────────
         brightness = random.randint(128, 220)  # Mid-range, not max

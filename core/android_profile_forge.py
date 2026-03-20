@@ -384,16 +384,25 @@ class AndroidProfileForge:
               persona_address: Optional[Dict[str, str]] = None,
               persona_area_code: str = "",
               city_area_codes: Optional[List[str]] = None,
+              variant_seed: Optional[str] = None,
               ) -> Dict[str, Any]:
         """
         Forge a complete Android device profile.
 
         Returns a dict containing all data needed by ProfileInjector:
             cookies, history, contacts, call_logs, sms, gallery_paths,
-            autofill, wifi_networks, app_installs, local_storage
+            autofill, wifi_networks, app_installs, local_storage,
+            samsung_health, sensor_traces, lifepath_events
+        
+        Args:
+            variant_seed: Optional entropy to generate profile variants.
+                Same persona with different variant_seed produces different
+                but coherent profiles. None = deterministic by persona.
         """
-        # Seed RNG from persona for deterministic output
+        # Seed RNG from persona for deterministic output; variant_seed adds entropy
         seed_str = f"{persona_name}:{persona_email}:{age_days}"
+        if variant_seed:
+            seed_str = f"{seed_str}:{variant_seed}"
         seed = int(hashlib.sha256(seed_str.encode()).hexdigest()[:16], 16)
         self._rng = random.Random(seed)
 
@@ -480,6 +489,44 @@ class AndroidProfileForge:
         # ─── Google Maps history ─────────────────────────────────────
         maps_history = self._forge_maps_history(now, age_days, location, locale)
 
+        # ─── Samsung Health data ─────────────────────────────────────
+        samsung_health = self._forge_samsung_health(now, age_days, archetype)
+
+        # ─── Local Storage (Chrome) ─────────────────────────────────
+        local_storage = self._forge_local_storage(now, age_days, locale, persona_email)
+
+        # ─── Sensor trace metadata ───────────────────────────────────
+        sensor_traces = self._forge_sensor_traces(now, age_days, archetype)
+
+        # ─── Build raw profile ────────────────────────────────────────
+        raw_profile = {
+            "contacts": contacts,
+            "call_logs": call_logs,
+            "sms": sms,
+            "cookies": cookies,
+            "history": history,
+            "gallery_paths": gallery_paths,
+            "autofill": autofill,
+            "wifi_networks": wifi_networks,
+            "app_installs": app_installs,
+            "play_purchases": play_purchases,
+            "app_usage": app_usage,
+            "notifications": notifications,
+            "email_receipts": email_receipts,
+            "maps_history": maps_history,
+            "local_storage": local_storage,
+            "samsung_health": samsung_health,
+            "sensor_traces": sensor_traces,
+        }
+
+        # ─── V12 Life-Path Coherence Engine ──────────────────────────
+        # Cross-correlate independently generated data into a coherent
+        # timeline: purchases→history, contacts→calls, GPS→maps, etc.
+        correlated = self._correlate_lifepath(
+            raw_profile, now, age_days, location, locale,
+            circadian_weights, tz_offset, persona_email,
+        )
+
         # ─── Build final profile ──────────────────────────────────────
         profile = {
             "id": profile_id,
@@ -495,37 +542,41 @@ class AndroidProfileForge:
             "device_model": device_model,
             "created_at": now.isoformat(),
             "profile_birth": profile_birth.isoformat(),
-            # Injection data
-            "contacts": contacts,
-            "call_logs": call_logs,
-            "sms": sms,
-            "cookies": cookies,
-            "history": history,
-            "gallery_paths": gallery_paths,
+            # Injection data (post-correlation)
+            "contacts": correlated["contacts"],
+            "call_logs": correlated["call_logs"],
+            "sms": correlated["sms"],
+            "cookies": correlated["cookies"],
+            "history": correlated["history"],
+            "gallery_paths": correlated["gallery_paths"],
             "autofill": autofill,
-            "wifi_networks": wifi_networks,
+            "wifi_networks": correlated["wifi_networks"],
             "app_installs": app_installs,
-            "play_purchases": play_purchases,
+            "play_purchases": correlated["play_purchases"],
             "app_usage": app_usage,
-            "notifications": notifications,
-            "email_receipts": email_receipts,
-            "maps_history": maps_history,
-            "local_storage": {},
+            "notifications": correlated["notifications"],
+            "email_receipts": correlated["email_receipts"],
+            "maps_history": correlated["maps_history"],
+            "local_storage": correlated["local_storage"],
+            "samsung_health": correlated["samsung_health"],
+            "sensor_traces": correlated["sensor_traces"],
+            "lifepath_events": correlated.get("lifepath_events", []),
             # Stats
             "stats": {
-                "contacts": len(contacts),
-                "call_logs": len(call_logs),
-                "sms": len(sms),
-                "cookies": len(cookies),
-                "history": len(history),
-                "gallery": len(gallery_paths),
+                "contacts": len(correlated["contacts"]),
+                "call_logs": len(correlated["call_logs"]),
+                "sms": len(correlated["sms"]),
+                "cookies": len(correlated["cookies"]),
+                "history": len(correlated["history"]),
+                "gallery": len(correlated["gallery_paths"]),
                 "apps": len(app_installs),
-                "wifi": len(wifi_networks),
-                "play_purchases": len(play_purchases),
+                "wifi": len(correlated["wifi_networks"]),
+                "play_purchases": len(correlated["play_purchases"]),
                 "app_usage": len(app_usage),
-                "notifications": len(notifications),
-                "email_receipts": len(email_receipts),
-                "maps_history": len(maps_history),
+                "notifications": len(correlated["notifications"]),
+                "email_receipts": len(correlated["email_receipts"]),
+                "maps_history": len(correlated["maps_history"]),
+                "lifepath_events": len(correlated.get("lifepath_events", [])),
             },
         }
 
@@ -1602,6 +1653,394 @@ class AndroidProfileForge:
 
         entries.sort(key=lambda x: x["timestamp"], reverse=True)
         return entries
+
+    # ─── SAMSUNG HEALTH ──────────────────────────────────────────────
+
+    def _forge_samsung_health(self, now: datetime, age_days: int,
+                               archetype: str) -> Dict[str, Any]:
+        """Generate Samsung Health steps + sleep data correlated with archetype."""
+        rng = self._rng
+        steps_daily = []
+        sleep_records = []
+
+        # Archetype-driven base activity levels
+        ACTIVITY_BASES = {
+            "professional": (6000, 12000),  # moderate walker
+            "student": (4000, 9000),        # campus walking
+            "night_shift": (3000, 7000),    # sedentary shift
+            "retiree": (3000, 8000),        # light walking
+            "gamer": (2000, 5000),          # sedentary
+        }
+        step_lo, step_hi = ACTIVITY_BASES.get(archetype, (5000, 10000))
+
+        for day_offset in range(min(age_days, 365)):
+            dt = now - timedelta(days=day_offset)
+            is_weekend = dt.weekday() >= 5
+
+            # Weekend modifier: ±20% 
+            if is_weekend:
+                daily_steps = rng.randint(int(step_lo * 0.8), int(step_hi * 1.2))
+            else:
+                daily_steps = rng.randint(step_lo, step_hi)
+
+            # Occasional highly active days (gym, travel)
+            if rng.random() < 0.08:
+                daily_steps = int(daily_steps * rng.uniform(1.5, 2.5))
+            # Occasional sick/lazy days
+            if rng.random() < 0.05:
+                daily_steps = int(daily_steps * rng.uniform(0.1, 0.3))
+
+            steps_daily.append({
+                "date": dt.strftime("%Y-%m-%d"),
+                "steps": daily_steps,
+                "distance_m": int(daily_steps * rng.uniform(0.65, 0.85)),
+                "calories": int(daily_steps * rng.uniform(0.035, 0.055)),
+            })
+
+            # Sleep: 85% chance of recorded sleep per night
+            if rng.random() < 0.85:
+                # Archetype sleep patterns
+                if archetype == "night_shift":
+                    sleep_start_h = rng.randint(6, 9)
+                elif archetype == "student":
+                    sleep_start_h = rng.randint(0, 3)
+                elif archetype == "retiree":
+                    sleep_start_h = rng.randint(21, 23)
+                else:
+                    sleep_start_h = rng.randint(22, 24) % 24
+
+                sleep_duration_min = rng.randint(300, 540)  # 5-9 hours
+                sleep_start = dt.replace(hour=sleep_start_h, minute=rng.randint(0, 59))
+                sleep_end = sleep_start + timedelta(minutes=sleep_duration_min)
+
+                # Sleep stages: light, deep, REM proportions
+                deep_pct = rng.uniform(0.15, 0.25)
+                rem_pct = rng.uniform(0.2, 0.3)
+                light_pct = 1.0 - deep_pct - rem_pct
+
+                sleep_records.append({
+                    "date": dt.strftime("%Y-%m-%d"),
+                    "start": int(sleep_start.timestamp() * 1000),
+                    "end": int(sleep_end.timestamp() * 1000),
+                    "duration_min": sleep_duration_min,
+                    "deep_min": int(sleep_duration_min * deep_pct),
+                    "light_min": int(sleep_duration_min * light_pct),
+                    "rem_min": int(sleep_duration_min * rem_pct),
+                    "efficiency": round(rng.uniform(0.78, 0.96), 2),
+                })
+
+        return {
+            "steps_daily": steps_daily,
+            "sleep_records": sleep_records,
+        }
+
+    # ─── LOCAL STORAGE (Chrome) ──────────────────────────────────────
+
+    def _forge_local_storage(self, now: datetime, age_days: int,
+                              locale: str, persona_email: str) -> Dict[str, Any]:
+        """Generate Chrome localStorage entries for key domains.
+        
+        Real devices have localStorage populated by visited sites.
+        Empty localStorage is an emulator signal.
+        """
+        rng = self._rng
+        storage = {}
+
+        # Google localStorage
+        storage["https://www.google.com"] = {
+            "gads:cid": secrets.token_hex(16),
+            "NID": f"{rng.randint(100, 300)}={secrets.token_hex(32)}",
+            "DV": secrets.token_hex(8),
+            "__Secure-ENID": secrets.token_hex(24),
+        }
+
+        # YouTube localStorage
+        yt_volume = rng.randint(20, 80)
+        storage["https://www.youtube.com"] = {
+            "yt-player-quality": rng.choice(["medium", "hd720", "hd1080"]),
+            "yt-player-volume": json.dumps({"data": str(yt_volume), "creation": int((now - timedelta(days=rng.randint(1, age_days))).timestamp() * 1000)}),
+            "yt-remote-connected-devices": json.dumps({"data": "[]", "creation": int(now.timestamp() * 1000)}),
+            "yt.innertube::nextId": str(rng.randint(1, 500)),
+            "yt.innertube::requests": str(rng.randint(100, 5000)),
+        }
+
+        # Amazon localStorage (if US/GB)
+        if locale in ("US", "GB"):
+            storage["https://www.amazon.com" if locale == "US" else "https://www.amazon.co.uk"] = {
+                "csm-hit": f"tb:{secrets.token_hex(12)}+s-{secrets.token_hex(12)}|{int(now.timestamp()*1000)}",
+                "session-id": f"{rng.randint(100, 999)}-{rng.randint(1000000, 9999999)}-{rng.randint(1000000, 9999999)}",
+                "ubid-main": f"{rng.randint(100, 999)}-{rng.randint(1000000, 9999999)}-{rng.randint(1000000, 9999999)}",
+            }
+
+        # Instagram localStorage
+        storage["https://www.instagram.com"] = {
+            "ig-set-ig-did": str(uuid.uuid4()),
+            "ig-set-ig-pr": str(rng.choice([1, 2, 3])),
+        }
+
+        # Twitter/X localStorage
+        storage["https://x.com"] = {
+            "rweb-setting-key-guest-id": str(rng.randint(10**17, 10**18)),
+            "rweb-setting-key-d_prefs": json.dumps({"dark_mode": rng.choice([True, False])}),
+        }
+
+        # Reddit localStorage
+        storage["https://www.reddit.com"] = {
+            "recent_srs": json.dumps([f"r/{s}" for s in rng.sample(
+                ["AskReddit", "funny", "gaming", "news", "worldnews", "pics",
+                 "todayilearned", "movies", "technology", "science"],
+                k=rng.randint(3, 7))]),
+        }
+
+        # Google Account localStorage
+        storage["https://accounts.google.com"] = {
+            "accountChooserSaved": persona_email,
+            "ACCOUNT_CHOOSER": persona_email,
+        }
+
+        return storage
+
+    # ─── SENSOR TRACE METADATA ───────────────────────────────────────
+
+    def _forge_sensor_traces(self, now: datetime, age_days: int,
+                              archetype: str) -> List[Dict[str, Any]]:
+        """Generate historical sensor trace metadata for profile age.
+        
+        Produces daily summaries of accelerometer/gyro activity that 
+        correlate with Samsung Health steps and archetype circadian pattern.
+        Used by sensor_simulator for warm-start calibration.
+        """
+        rng = self._rng
+        traces = []
+
+        for day_offset in range(min(age_days, 180)):
+            dt = now - timedelta(days=day_offset)
+            is_weekend = dt.weekday() >= 5
+
+            # Active hours per day based on archetype
+            if archetype == "gamer":
+                active_hours = rng.randint(2, 6)
+            elif archetype == "retiree":
+                active_hours = rng.randint(3, 8)
+            elif archetype == "night_shift":
+                active_hours = rng.randint(4, 8)
+            else:
+                active_hours = rng.randint(5, 12)
+
+            if is_weekend:
+                active_hours = max(2, active_hours + rng.randint(-2, 2))
+
+            # Aggregate sensor stats for the day
+            avg_accel = round(rng.uniform(0.02, 0.15) * (active_hours / 8.0), 4)
+            avg_gyro = round(rng.uniform(0.1, 1.5) * (active_hours / 8.0), 4)
+            max_accel = round(avg_accel * rng.uniform(3.0, 8.0), 4)
+
+            traces.append({
+                "date": dt.strftime("%Y-%m-%d"),
+                "active_hours": active_hours,
+                "avg_accel_g": avg_accel,
+                "avg_gyro_dps": avg_gyro,
+                "peak_accel_g": max_accel,
+                "total_gesture_events": rng.randint(active_hours * 50, active_hours * 200),
+                "gps_fixes": rng.randint(active_hours * 2, active_hours * 10),
+            })
+
+        return traces
+
+    # ═══════════════════════════════════════════════════════════════════
+    # V12: LIFE-PATH COHERENCE ENGINE
+    # Cross-correlates independently generated data into a coherent
+    # timeline. This is the core v12 differentiator.
+    # ═══════════════════════════════════════════════════════════════════
+
+    def _correlate_lifepath(self, raw: Dict[str, Any], now: datetime,
+                            age_days: int, location: str, locale: str,
+                            circadian_weights: List[float],
+                            tz_offset: float,
+                            persona_email: str) -> Dict[str, Any]:
+        """Post-process all forged data to create cross-data correlations.
+        
+        Correlation rules implemented:
+        1. Email receipts → Chrome history visits on same day
+        2. Maps navigation → Chrome search for destination ±2h before
+        3. Frequent contacts → Call log clusters at consistent hours
+        4. Purchase notifications → Cookie session refresh on merchant domain
+        5. Gallery photos GPS → Maps history location on same day
+        6. SMS conversations → Contact call log temporal proximity
+        7. Samsung Health steps → Sensor traces active hours correlation
+        8. WiFi networks → Maps history geographic consistency
+        """
+        rng = self._rng
+        result = {k: list(v) if isinstance(v, list) else dict(v) if isinstance(v, dict) else v
+                  for k, v in raw.items()}
+        lifepath_events = []
+
+        # ── 1. Email receipt → Chrome history correlation ──
+        for receipt in result.get("email_receipts", []):
+            ts = receipt.get("timestamp", 0)
+            if ts <= 0:
+                continue
+            merchant = receipt.get("merchant", "")
+            domain_map = {
+                "Amazon": "https://www.amazon.com/gp/css/order-history",
+                "DoorDash": "https://www.doordash.com/orders",
+                "Uber": "https://riders.uber.com/trips",
+                "Google Play": "https://play.google.com/store/account/orderhistory",
+                "Walmart": "https://www.walmart.com/orders",
+            }
+            url = domain_map.get(merchant)
+            if url and rng.random() < 0.7:  # 70% chance of correlated visit
+                # Visit ±4h from receipt timestamp
+                offset_ms = rng.randint(-4 * 3600000, 4 * 3600000)
+                visit_ts = ts + offset_ms
+                result["history"].append({
+                    "url": url,
+                    "title": f"Order History - {merchant}",
+                    "visit_count": rng.randint(1, 3),
+                    "timestamp": visit_ts,
+                })
+                lifepath_events.append({
+                    "type": "purchase_browse",
+                    "timestamp": visit_ts,
+                    "merchant": merchant,
+                    "correlation": "email_receipt→chrome_history",
+                })
+
+        # ── 2. Maps navigation → Chrome search before trip ──
+        for entry in result.get("maps_history", []):
+            if entry.get("type") != "navigation":
+                continue
+            ts = entry.get("timestamp", 0)
+            dest = entry.get("destination", "")
+            if ts <= 0 or not dest:
+                continue
+            if rng.random() < 0.5:  # 50% searched before navigating
+                search_offset_ms = rng.randint(30 * 60000, 3 * 3600000)  # 30min-3h before
+                search_ts = ts - search_offset_ms
+                result["history"].append({
+                    "url": f"https://www.google.com/search?q={dest.replace(' ', '+')}+directions",
+                    "title": f"{dest} - Google Search",
+                    "visit_count": 1,
+                    "timestamp": search_ts,
+                })
+
+        # ── 3. Frequent contacts → consistent call windows ──
+        # Identify top 5 contacts by call frequency
+        contact_call_counts: Dict[str, int] = {}
+        for call in result.get("call_logs", []):
+            cname = call.get("contact_name", "")
+            if cname:
+                contact_call_counts[cname] = contact_call_counts.get(cname, 0) + 1
+        top_contacts = sorted(contact_call_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+        for contact_name, count in top_contacts:
+            # Assign a preferred call hour for this contact (relationship pattern)
+            preferred_hour = rng.randint(8, 22)
+            calls_for_contact = [c for c in result["call_logs"] if c.get("contact_name") == contact_name]
+            # Nudge 60% of calls toward preferred hour
+            for call in calls_for_contact:
+                if rng.random() < 0.6:
+                    ts = call.get("timestamp", 0)
+                    if ts > 0:
+                        dt = datetime.fromtimestamp(ts / 1000)
+                        dt = dt.replace(hour=preferred_hour, minute=rng.randint(0, 59))
+                        call["timestamp"] = int(dt.timestamp() * 1000)
+
+        # ── 4. Purchase notifications → Cookie session refresh ──
+        for receipt in result.get("email_receipts", []):
+            ts = receipt.get("timestamp", 0)
+            merchant = receipt.get("merchant", "")
+            cookie_domain_map = {
+                "Amazon": ".amazon.com",
+                "Walmart": ".walmart.com",
+                "Google Play": ".google.com",
+            }
+            domain = cookie_domain_map.get(merchant)
+            if domain and rng.random() < 0.6:
+                # Refresh session cookie near purchase time
+                for cookie in result.get("cookies", []):
+                    if cookie.get("domain") == domain and "session" in cookie.get("name", "").lower():
+                        cookie["last_access_utc"] = ts // 1000
+                        break
+
+        # ── 5. Gallery photos → Maps history location proximity ──
+        # For photos with EXIF GPS, ensure a Maps search exists near same location/day
+        for photo in result.get("gallery_paths", []):
+            if isinstance(photo, dict) and photo.get("lat") and photo.get("lon"):
+                photo_ts = photo.get("timestamp", 0)
+                if photo_ts > 0 and rng.random() < 0.4:
+                    result["maps_history"].append({
+                        "type": "search",
+                        "query": f"{photo.get('lat', 0):.4f},{photo.get('lon', 0):.4f}",
+                        "timestamp": photo_ts - rng.randint(0, 3600000),
+                        "lat": photo.get("lat"),
+                        "lon": photo.get("lon"),
+                    })
+
+        # ── 6. SMS threads → Contact call temporal proximity ──
+        # If a contact has both SMS and calls, cluster some on same day
+        sms_contacts = set()
+        for sms in result.get("sms", []):
+            sms_contacts.add(sms.get("contact_name", ""))
+        call_contacts = set()
+        for call in result.get("call_logs", []):
+            call_contacts.add(call.get("contact_name", ""))
+        overlap = sms_contacts & call_contacts - {""}
+
+        for contact_name in list(overlap)[:10]:
+            contact_sms = [s for s in result["sms"] if s.get("contact_name") == contact_name]
+            contact_calls = [c for c in result["call_logs"] if c.get("contact_name") == contact_name]
+            # For 30% of SMS, add a call within ±2h
+            for sms in contact_sms:
+                if rng.random() < 0.3 and contact_calls:
+                    sms_ts = sms.get("timestamp", 0)
+                    if sms_ts > 0:
+                        nearest_call = min(contact_calls, key=lambda c: abs(c.get("timestamp", 0) - sms_ts))
+                        # Nudge call closer to SMS
+                        offset = rng.randint(-2 * 3600000, 2 * 3600000)
+                        nearest_call["timestamp"] = sms_ts + offset
+
+        # ── 7. Samsung Health steps → Sensor traces correlation ──
+        steps_by_date = {}
+        for step in result.get("samsung_health", {}).get("steps_daily", []):
+            steps_by_date[step["date"]] = step["steps"]
+
+        for trace in result.get("sensor_traces", []):
+            date_str = trace.get("date", "")
+            if date_str in steps_by_date:
+                steps = steps_by_date[date_str]
+                # Correlate: more steps → more active hours, higher avg accel
+                step_factor = min(steps / 10000.0, 2.0)
+                trace["active_hours"] = max(2, int(trace["active_hours"] * (0.5 + 0.5 * step_factor)))
+                trace["avg_accel_g"] = round(trace["avg_accel_g"] * (0.7 + 0.3 * step_factor), 4)
+                trace["total_gesture_events"] = int(trace["total_gesture_events"] * (0.6 + 0.4 * step_factor))
+
+        # ── 8. WiFi networks → Maps history geographic consistency ──
+        # Ensure "home" wifi appears in Maps searches near home-like POIs
+        home_wifi = [w for w in result.get("wifi_networks", []) if w.get("type") == "home"]
+        if home_wifi and result.get("maps_history"):
+            home_ssid = home_wifi[0].get("ssid", "Home WiFi")
+            # Tag some maps searches as "near home"
+            for entry in result["maps_history"][:20]:
+                if entry.get("type") == "search" and rng.random() < 0.2:
+                    lifepath_events.append({
+                        "type": "home_activity",
+                        "timestamp": entry.get("timestamp", 0),
+                        "wifi": home_ssid,
+                        "correlation": "wifi_home→maps_proximity",
+                    })
+
+        # ── Re-sort modified lists ──
+        result["history"].sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        result["maps_history"].sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        result["call_logs"].sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        result["sms"].sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+
+        lifepath_events.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+        result["lifepath_events"] = lifepath_events
+
+        logger.info(f"Life-Path correlation: {len(lifepath_events)} cross-data events generated")
+        return result
 
     # ─── SAVE ─────────────────────────────────────────────────────────
 
