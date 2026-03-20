@@ -46,6 +46,10 @@ class GenesisCreateBody(BaseModel):
     cc_cardholder: str = ""
     install_wallets: bool = True
     pre_login: bool = True
+    street: str = ""
+    city: str = ""
+    state: str = ""
+    zip: str = ""
 
 
 class SmartForgeBody(BaseModel):
@@ -82,11 +86,10 @@ async def genesis_create(body: GenesisCreateBody):
         # Build persona address from user inputs
         persona_address = None
         
-        # Extract address fields if provided via extended body attributes
-        street = getattr(body, 'street', '') or ''
-        city = getattr(body, 'city', '') or ''
-        state = getattr(body, 'state', '') or ''
-        zip_code = getattr(body, 'zip', '') or ''
+        street = body.street or ''
+        city = body.city or ''
+        state = body.state or ''
+        zip_code = body.zip or ''
         
         # Build address dict if any address field provided
         if street or city or state or zip_code:
@@ -115,6 +118,7 @@ async def genesis_create(body: GenesisCreateBody):
             persona_name=body.name, persona_email=body.email, persona_phone=body.phone,
             country=body.country, archetype=body.archetype, age_days=body.age_days,
             carrier=body.carrier, location=body.location, device_model=body.device_model,
+            persona_address=persona_address,
         )
         pf = _profiles_dir() / f"{profile['id']}.json"
         pf.write_text(json.dumps(profile))
