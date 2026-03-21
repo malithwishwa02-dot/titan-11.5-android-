@@ -264,7 +264,7 @@ ipcMain.handle('setup:run', async (event) => {
 
     // 5. Mark setup as done
     fs.writeFileSync(SETUP_DONE, JSON.stringify({
-      version: '11.3.5',
+      version: '12.0.0',
       python: python.version,
       timestamp: new Date().toISOString(),
     }));
@@ -389,10 +389,26 @@ async function createMainWindow() {
 
   mainWindow.on('closed', () => { mainWindow = null; });
 
-  // Open external links in the system browser
+  // Open external links in the system browser with fallback for Linux I/O issues
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (!url.startsWith(`http://127.0.0.1:${API_PORT}`)) {
-      shell.openExternal(url);
+      shell.openExternal(url).catch((err) => {
+        console.warn('[titan] shell.openExternal failed', err && err.message ? err.message : err);
+        const openCmd = process.platform === 'darwin'
+          ? `open "${url}"`
+          : process.platform === 'win32'
+            ? `start "" "${url}"`
+            : `xdg-open "${url}"`;
+        const { exec } = require('child_process');
+        exec(openCmd, (error, stdout, stderr) => {
+          if (error) {
+            console.error('[titan] fallback open command failed', error.message || error);
+            if (process.platform === 'linux' && /Input\/output error/i.test(error.message || '')) {
+              console.error('[titan] Linux I/O error opening browser; ensure DISPLAY is set and a desktop browser is installed.');
+            }
+          }
+        });
+      });
       return { action: 'deny' };
     }
     return { action: 'allow' };

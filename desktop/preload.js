@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('titanDesktop', {
   platform: process.platform,
-  version: '11.3.5',
+  version: '12.0.0',
   backend: 'cuttlefish',
   cvd: {
     binDir: process.env.CVD_BIN_DIR || '/opt/titan/cuttlefish/cf/bin',

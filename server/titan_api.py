@@ -124,7 +124,7 @@ async def readiness_check():
 @app.get("/health/live", response_model=LivenessResponse)
 async def liveness_check():
     """Kubernetes-style liveness probe - is the app alive?"""
-    return {"alive": True, "version": "11.3.5"}
+    return {"alive": True, "version": "12.0.0"}
 
 
 @app.get("/health", response_model=HealthResponse)

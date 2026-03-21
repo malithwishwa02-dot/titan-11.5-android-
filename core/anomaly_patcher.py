@@ -3091,7 +3091,7 @@ class AnomalyPatcher:
         config = _json.dumps({
             "preset": preset_name, "carrier": carrier_name,
             "location": location_name, "lockdown": lockdown,
-            "age_days": age_days, "version": "11.3.5",
+            "age_days": age_days, "version": "12.0.0",
         })
         self._sh(f"echo '{config}' > {self.PATCH_CONFIG_PATH}", timeout=5)
 

@@ -1,7 +1,7 @@
 [project]
-name = "titan-v11"
-version = "11.3.5"
-description = "Titan V11.3 — Antidetect Android Device Platform (Cuttlefish)"
+name = "titan-x"
+version = "12.0.0"
+description = "Titan V12.0 — Antidetect Android Device Platform (Cuttlefish)"
 requires-python = ">=3.10"
 license = {text = "Proprietary"}
 dependencies = [
