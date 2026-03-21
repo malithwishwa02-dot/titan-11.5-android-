@@ -23,7 +23,7 @@ async def network_status():
         )
         return result
     except asyncio.TimeoutError:
-        return {"vpn": "timeout", "connected": False, "stub": True, "available": False}
+        raise NotImplementedError("VPN timeout: real implementation required.")
     except (ImportError, AttributeError):
         try:
             from mullvad_vpn import get_mullvad_status
@@ -34,7 +34,7 @@ async def network_status():
             )
             return result
         except Exception:
-            return {"vpn": "not_configured", "stub": True, "available": False}
+            raise NotImplementedError("VPN not configured: real implementation required.")
 
 
 @router.post("/vpn/connect")
@@ -49,9 +49,9 @@ async def vpn_connect(request: Request):
         result = await asyncio.wait_for(loop.run_in_executor(None, fn), timeout=10.0)
         return result
     except asyncio.TimeoutError:
-        return {"status": "timeout", "stub": True, "available": False}
+        raise NotImplementedError("Network timeout: real implementation required.")
     except ImportError:
-        return {"status": "vpn_module_unavailable", "stub": True, "available": False}
+        raise NotImplementedError("VPN module unavailable: real implementation required.")
 
 
 @router.post("/vpn/disconnect")
@@ -64,9 +64,9 @@ async def vpn_disconnect():
         result = await asyncio.wait_for(loop.run_in_executor(None, vpn.disconnect), timeout=10.0)
         return result
     except asyncio.TimeoutError:
-        return {"status": "timeout", "stub": True, "available": False}
+        raise NotImplementedError("Network timeout: real implementation required.")
     except ImportError:
-        return {"status": "vpn_module_unavailable", "stub": True, "available": False}
+        raise NotImplementedError("VPN module unavailable: real implementation required.")
 
 
 @router.post("/proxy-test")
@@ -101,9 +101,9 @@ async def network_forensic():
         result = await asyncio.wait_for(loop.run_in_executor(None, monitor.scan_system_state), timeout=15.0)
         return result
     except asyncio.TimeoutError:
-        return {"stub": True, "available": False, "error": "forensic scan timed out"}
+        raise NotImplementedError("Forensic scan timed out: real implementation required.")
     except (ImportError, AttributeError, Exception) as e:
-        return {"stub": True, "available": False, "error": str(e)}
+        raise NotImplementedError(f"Forensic scan error: {str(e)}")
 
 
 @router.get("/shield")
@@ -116,6 +116,6 @@ async def network_shield():
         result = await asyncio.wait_for(loop.run_in_executor(None, shield.get_status), timeout=15.0)
         return result
     except asyncio.TimeoutError:
-        return {"stub": True, "available": False, "error": "network shield timed out"}
+        raise NotImplementedError("Network shield timed out: real implementation required.")
     except (ImportError, AttributeError, Exception) as e:
-        return {"stub": True, "available": False, "error": str(e)}
+        raise NotImplementedError(f"Network shield error: {str(e)}")

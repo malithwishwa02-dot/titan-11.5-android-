@@ -7,7 +7,7 @@ Usage:
     from core.models import PatchPhase, JobStatus, DeviceState
 """
 
-from exceptions import (
+from core.exceptions import (
     TitanError,
     ADBConnectionError,
     ADBCommandError,

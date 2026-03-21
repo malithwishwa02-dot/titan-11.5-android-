@@ -524,76 +524,93 @@ class DeviceAgent:
         self._stop_flags[task_id] = stop_flag
 
         thread = threading.Thread(target=self._run_task, args=(task_id,), daemon=True)
-        self._threads[task_id] = thread
-        thread.start()
+        def _run_task(self, task_id: str):
+            """Main see→think→act loop. Runs in background thread."""
+            task = self._tasks[task_id]
+            stop = self._stop_flags[task_id]
 
-        logger.info(f"Task started: {task_id} — {final_prompt[:80]}...")
-        return task_id
+            task.status = "running"
+            task.started_at = time.time()
 
-    def stop_task(self, task_id: str) -> bool:
-        """Stop a running task."""
-        flag = self._stop_flags.get(task_id)
-        if flag:
-            flag.set()
-            task = self._tasks.get(task_id)
-            if task:
-                task.status = "stopped"
-            return True
-        return False
+            # ── Trajectory logging ──
+            traj = TrajectoryLogger(task_id=task_id, device_id=task.device_id)
+            traj.set_metadata(
+                prompt=task.prompt, model=task.model, persona=task.persona,
+                device_type="cuttlefish",
+            )
+            self._current_traj = traj
 
-    def get_task(self, task_id: str) -> Optional[AgentTask]:
-        return self._tasks.get(task_id)
+            # Allow small/free models (e.g., GPT-4.1, chatgpt, etc.) to run without forced stop
+            small_free_models = ["gpt-4.1", "gpt-4", "chatgpt", "gpt-3.5", "phi-2", "mistral", "qwen2.5:7b", "hermes3:8b"]
+            model_name = (task.model or "").lower()
+            unlimited_steps = any(m in model_name for m in small_free_models)
 
-    def list_tasks(self) -> List[Dict]:
-        return [t.to_dict() for t in self._tasks.values()]
+            try:
+                step = 1
+                while True:
+                    if stop.is_set():
+                        task.status = "stopped"
+                        break
 
-    def analyze_screen(self) -> Dict:
-        """One-shot screen analysis."""
-        state = self.analyzer.capture_and_analyze()
-        return state.to_dict()
+                    action = self._execute_step(task, step)
+                    task.actions.append(action)
+                    task.steps_taken = step
 
-    # ─── TASK EXECUTION LOOP ─────────────────────────────────────────
+                    if action.action_type == "done":
+                        task.status = "completed"
+                        task.result = action.reasoning
+                        break
+                    elif action.action_type == "error":
+                        task.status = "failed"
+                        task.error = action.reasoning
+                        break
 
-    def _run_task(self, task_id: str):
-        """Main see→think→act loop. Runs in background thread."""
-        task = self._tasks[task_id]
-        stop = self._stop_flags[task_id]
+                    # Post-action delay for UI transitions to settle
+                    import random as _rnd
+                    time.sleep(_rnd.uniform(1.5, 2.5))
 
-        task.status = "running"
-        task.started_at = time.time()
+                    # Prevent infinite loops — if last 5 actions are identical, stop (unless unlimited)
+                    if not unlimited_steps and len(task.actions) >= 5:
+                        recent = [a.action_type + str(a.params) for a in task.actions[-5:]]
+                        if len(set(recent)) == 1:
+                            task.status = "failed"
+                            task.error = "Stuck in loop — same action repeated 5 times"
+                            break
+                    # Detect oscillating patterns (A→B→A→B→A) (unless unlimited)
+                    if not unlimited_steps and len(task.actions) >= 6:
+                        last6 = [a.action_type + str(a.params) for a in task.actions[-6:]]
+                        if (last6[0] == last6[2] == last6[4] and
+                                last6[1] == last6[3] == last6[5] and
+                                last6[0] != last6[1]):
+                            task.status = "failed"
+                            task.error = "Stuck in oscillating loop — alternating 2 actions"
+                            break
 
-        # ── Trajectory logging ──
-        traj = TrajectoryLogger(task_id=task_id, device_id=task.device_id)
-        traj.set_metadata(
-            prompt=task.prompt, model=task.model, persona=task.persona,
-            device_type="cuttlefish",
-        )
-        self._current_traj = traj
+                    # Step limit for normal models
+                    if not unlimited_steps:
+                        if step >= task.max_steps:
+                            task.status = "completed"
+                            task.result = f"Max steps ({task.max_steps}) reached"
+                            break
+                    # For small/free models, allow up to 10,000 steps (practically unlimited)
+                    else:
+                        if step >= 10000:
+                            task.status = "completed"
+                            task.result = f"Max steps (10000) reached for small/free model"
+                            break
 
-        try:
-            for step in range(1, task.max_steps + 1):
-                if stop.is_set():
-                    task.status = "stopped"
-                    break
+                    step += 1
 
-                action = self._execute_step(task, step)
-                task.actions.append(action)
-                task.steps_taken = step
+            except Exception as e:
+                task.status = "failed"
+                task.error = str(e)
+                logger.exception(f"Task {task_id} failed")
 
-                if action.action_type == "done":
-                    task.status = "completed"
-                    task.result = action.reasoning
-                    break
-                elif action.action_type == "error":
-                    task.status = "failed"
-                    task.error = action.reasoning
-                    break
-
-                # Post-action delay for UI transitions to settle
-                import random as _rnd
-                time.sleep(_rnd.uniform(1.5, 2.5))
-
-                # Prevent infinite loops — if last 5 actions are identical, stop
+            task.completed_at = time.time()
+            traj.finalize(status=task.status, total_steps=task.steps_taken)
+            self._current_traj = None
+            logger.info(f"Task {task_id} finished: {task.status} ({task.steps_taken} steps, "
+                         f"{task.completed_at - task.started_at:.1f}s")
                 if len(task.actions) >= 5:
                     recent = [a.action_type + str(a.params) for a in task.actions[-5:]]
                     if len(set(recent)) == 1:

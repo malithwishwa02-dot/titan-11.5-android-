@@ -40,7 +40,7 @@ def _profiles_dir() -> Path:
 
 
 def _attach_gallery(profile_data: dict):
-    """Attach gallery stub paths to profile data if available."""
+    # Attach gallery paths to profile data if available.
     gallery_dir = Path(os.environ.get("TITAN_DATA", "/opt/titan/data")) / "forge_gallery"
     if gallery_dir.exists():
         profile_data["gallery_paths"] = [str(p) for p in sorted(gallery_dir.glob("*.jpg"))[:25]]

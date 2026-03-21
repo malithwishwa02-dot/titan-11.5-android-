@@ -28,7 +28,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from device_state_db import DeviceStateDB
+from core.device_state_db import DeviceStateDB
 
 logger = logging.getLogger("titan.device-manager")
 
@@ -36,7 +36,7 @@ TITAN_DATA = Path(os.environ.get("TITAN_DATA", "/opt/titan/data"))
 DEVICES_DIR = TITAN_DATA / "devices"
 CVD_HOME_BASE = Path(os.environ.get("CVD_HOME_BASE", "/opt/titan/cuttlefish"))
 CVD_BIN_DIR = Path(os.environ.get("CVD_BIN_DIR", "/opt/titan/cuttlefish/cf/bin"))
-CVD_IMAGES_DIR = Path(os.environ.get("CVD_IMAGES_DIR", "/opt/titan/images"))
+CVD_IMAGES_DIR = Path(os.environ.get("CVD_IMAGES_DIR", "/opt/titan/cuttlefish/images"))
 BASE_ADB_PORT = 6520
 BASE_VNC_PORT = 6444
 MAX_DEVICES = 8
@@ -220,6 +220,122 @@ class DeviceManager:
         _run(f"for f in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; "
              f"do echo {governor} > $f 2>/dev/null; done", timeout=5)
 
+    def _ensure_cvd_host_files(self, cvd_home: Optional[Path] = None):
+        """Ensure host-side Cuttlefish support files are available in /root/etc and per-instance cvd_home."""
+        root_etc = Path("/root/etc")
+        root_etc.mkdir(parents=True, exist_ok=True)
+
+        default_input = root_etc / "default_input_devices"
+        if not default_input.exists():
+            source_dir = CVD_HOME_BASE / "etc" / "default_input_devices"
+            if not source_dir.exists():
+                source_dir = Path("/usr/lib/cuttlefish-common/etc/default_input_devices")
+            if source_dir.exists():
+                try:
+                    default_input.symlink_to(source_dir)
+                    logger.info(f"Symlinked default input devices from {source_dir} to {default_input}")
+                except FileExistsError:
+                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to symlink default input devices: {e}")
+
+        # Ensure cvd_config fallback exists in /root/etc/cvd_config
+        root_cvd_config = root_etc / "cvd_config"
+        if not root_cvd_config.exists():
+            root_cvd_config.mkdir(parents=True, exist_ok=True)
+            base_cvd_config = CVD_HOME_BASE / "etc" / "cvd_config"
+            if base_cvd_config.exists():
+                for entry in base_cvd_config.glob("*.json"):
+                    target = root_cvd_config / entry.name
+                    if not target.exists():
+                        try:
+                            target.symlink_to(entry)
+                        except Exception:
+                            pass
+
+        instance_etc = None
+        if cvd_home is not None:
+            instance_etc = cvd_home / "etc"
+            instance_etc.mkdir(parents=True, exist_ok=True)
+
+        # Ensure per-instance android-info config exists for assemble_cvd
+        self._ensure_instance_android_info(cvd_home)
+
+        if instance_etc is not None:
+            keys = [
+                "cvd_avb_testkey_rsa2048.pem",
+                "cvd_avb_testkey_rsa4096.pem",
+                "cvd_rsa2048.avbpubkey",
+                "cvd_rsa4096.avbpubkey",
+            ]
+            for key in keys:
+                target = instance_etc / key
+                if not target.exists():
+                    source = CVD_HOME_BASE / "etc" / key
+                    if not source.exists():
+                        source = root_etc / key
+                    if source.exists():
+                        try:
+                            target.symlink_to(source)
+                        except FileExistsError:
+                            pass
+                        except Exception as e:
+                            logger.warning(f"Failed to symlink AVB key {key} for {cvd_home}: {e}")
+
+            # Ensure default input device templates are available under per-instance etc if requested
+            if (instance_etc / "default_input_devices").exists() is False:
+                if default_input.exists():
+                    try:
+                        (instance_etc / "default_input_devices").symlink_to(default_input)
+                    except Exception as e:
+                        logger.warning(f"Failed to symlink instance default input devices: {e}")
+
+            # Ensure OpenWRT images are accessible for each instance
+            openwrt_source = CVD_HOME_BASE / "etc" / "openwrt" / "images"
+            if not openwrt_source.exists():
+                openwrt_source = Path("/opt/titan/cuttlefish/home-cvd1/etc/openwrt/images")
+            if openwrt_source.exists():
+                openwrt_images_target = instance_etc / "openwrt" / "images"
+                if not openwrt_images_target.exists():
+                    try:
+                        (instance_etc / "openwrt").mkdir(parents=True, exist_ok=True)
+                        openwrt_images_target.symlink_to(openwrt_source)
+                    except Exception as e:
+                        logger.warning(f"Failed to symlink OpenWRT images for {cvd_home}: {e}")
+
+    def _ensure_instance_android_info(self, cvd_home: Path):
+        """Create per-instance android-info.txt from available template."""
+        if not cvd_home:
+            return
+        info_path = cvd_home / "android-info.txt"
+        if info_path.exists():
+            return
+
+        candidates = [
+            CVD_IMAGES_DIR / "android-info.txt",
+            CVD_HOME_BASE / "images" / "android-info.txt",
+            CVD_HOME_BASE / "android-info.txt",
+            Path("/opt/titan/cuttlefish/images/android-info.txt"),
+        ]
+
+        content = None
+        for cand in candidates:
+            if cand.exists() and cand.is_file():
+                try:
+                    content = cand.read_text()
+                    break
+                except Exception:
+                    continue
+
+        if content is None:
+            content = "config=phone\ngfxstream=supported\ngfxstream_gl_program_binary_link_status=supported\n"
+
+        try:
+            info_path.write_text(content)
+            logger.info(f"Wrote android-info config {info_path}")
+        except Exception as e:
+            logger.warning(f"Failed to write android-info.txt to {info_path}: {e}")
+
     def _detect_gpu_mode(self) -> str:
         """Auto-detect the best GPU acceleration mode for Cuttlefish.
 
@@ -233,6 +349,11 @@ class DeviceManager:
         # Check for discrete GPU with Vulkan support (gfxstream)
         r = _run("vulkaninfo --summary 2>/dev/null | head -20", timeout=5)
         if r["ok"] and "deviceName" in r["stdout"]:
+            # Detect llvmpipe-only environments and fallback to software mode
+            if "llvmpipe" in r["stdout"].lower():
+                logger.info("GPU auto-detect: llvmpipe only, using guest_swiftshader")
+                return "guest_swiftshader"
+
             # Has Vulkan — check if gfxstream renderer is available
             gfx_lib = _run("ldconfig -p 2>/dev/null | grep -i gfxstream", timeout=3)
             if gfx_lib["ok"] and "gfxstream" in gfx_lib["stdout"]:
@@ -301,8 +422,63 @@ class DeviceManager:
                 return num
         raise RuntimeError("No available Cuttlefish instance numbers")
 
+    def _is_adb_port_conflict(self, port: int) -> bool:
+        """Check if the ADB host port is already in use (from existing devices, adb server, or other services)."""
+        # Existing managed devices with same port
+        for d in self._devices.values():
+            if d.adb_port == port:
+                return True
+
+        # Check whether socket is listening already
+        import socket
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.3)
+            try:
+                s.connect(("127.0.0.1", port))
+                return True
+            except (ConnectionRefusedError, OSError, socket.timeout):
+                return False
+
     def _instance_adb_port(self, instance_num: int) -> int:
-        return BASE_ADB_PORT + instance_num - 1
+        default_port = BASE_ADB_PORT + instance_num - 1
+        if not self._is_adb_port_conflict(default_port):
+            return default_port
+
+        # If default is occupied, find next free port in range.
+        for offset in range(MAX_DEVICES + 20):
+            candidate = BASE_ADB_PORT + offset
+            if not self._is_adb_port_conflict(candidate):
+                logger.warning(f"ADB port {default_port} in use; switching to {candidate}")
+                return candidate
+
+        raise RuntimeError("No available ADB port around base port")
+
+    def _resolve_system_image_dir(self) -> Optional[Path]:
+        candidates = [
+            Path(os.environ.get("CVD_IMAGES_DIR", "/opt/titan/cuttlefish/images")),
+            Path("/opt/titan/cuttlefish/images"),
+            Path("/opt/android-cuttlefish/images"),
+            CVD_HOME_BASE / "images",
+            Path("/opt/titan/cuttlefish/home-cvd1/images"),
+        ]
+        required_markers = ["system.img", "super.img", "boot.img", "super_raw.img", "userdata.img", "vbmeta.img"]
+
+        for candidate in candidates:
+            if not candidate.exists() or not candidate.is_dir():
+                continue
+            # Accept either dynamic partition image set (super.img) or classic system image set
+            if any((candidate / marker).exists() for marker in required_markers):
+                logger.info(f"Resolved system_image_dir: {candidate}")
+                return candidate
+
+        # If not found, try fallback to any image dir that contains a zygote or placeholder
+        for candidate in candidates:
+            if candidate.exists() and candidate.is_dir() and any(candidate.glob("*.img")):
+                logger.warning(f"Fallback system_image_dir by image pattern: {candidate}")
+                return candidate
+
+        logger.error("No valid Cuttlefish system_image_dir found among candidates: %s", candidates)
+        return None
 
     def _instance_vnc_port(self, instance_num: int) -> int:
         return BASE_VNC_PORT + instance_num - 1
@@ -370,6 +546,8 @@ class DeviceManager:
         # Pre-flight: ensure kernel modules, GPU mode, and set performance CPU governor
         self._ensure_kernel_modules()
         self._set_cpu_governor("performance")  # Max VM responsiveness
+
+        initial_gpu_mode = req.gpu_mode
         if req.gpu_mode == "auto":
             req.gpu_mode = self._detect_gpu_mode()
 
@@ -383,9 +561,22 @@ class DeviceManager:
         cvd_home = CVD_HOME_BASE / dev_id
         cvd_home.mkdir(parents=True, exist_ok=True)
 
+        # Ensure necessary per-instance host binaries are accessible
+        bin_dir = cvd_home / "bin"
+        if not bin_dir.exists():
+            try:
+                bin_dir.symlink_to(CVD_BIN_DIR)
+                logger.info(f"Symlinked CVD host binaries to {bin_dir}")
+            except Exception as e:
+                logger.warning(f"Failed to symlink CVD bin directory: {e}")
+
         # Also create device data dir for Titan metadata
         data_dir = DEVICES_DIR / dev_id
         data_dir.mkdir(parents=True, exist_ok=True)
+
+        # Ensure host-side Cuttlefish data dependencies are available for launch_cvd.
+        self._ensure_cvd_host_files()
+        self._ensure_instance_android_info(cvd_home)
 
         dev = DeviceInstance(
             id=dev_id,
@@ -404,14 +595,40 @@ class DeviceManager:
         self._save_state()
 
         # Resolve device preset for identity props
-        from device_presets import DEVICE_PRESETS
+        from core.device_presets import DEVICE_PRESETS
         preset = DEVICE_PRESETS.get(req.model)
 
         # Generate Cuttlefish JSON config with device identity baked in
         cvd_config = self._generate_cvd_config(req, preset)
         config_path = cvd_home / "cvd_config.json"
         config_path.write_text(json.dumps(cvd_config, indent=2))
+
+        # Ensure Cuttlefish host files and legacy config directory exist (launch_cvd expects this)
+        self._ensure_cvd_host_files(cvd_home=cvd_home)
+
+        config_dir = cvd_home / "etc" / "cvd_config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+
+        legacy_config_path = config_dir / "cvd_config.json"
+        if legacy_config_path.exists() or legacy_config_path.is_symlink():
+            legacy_config_path.unlink()
+        legacy_config_path.symlink_to(config_path)
+
+        # Generate a config preset that matches Cuttlefish --config=phone expectations
+        legacy_config_phone_path = config_dir / "cvd_config_phone.json"
+        phone_config = {
+            "x_res": req.screen_width,
+            "y_res": req.screen_height,
+            "dpi": req.dpi,
+            "memory_mb": req.memory_mb,
+            "ddr_mem_mb": max(req.memory_mb + 512, req.memory_mb),
+        }
+        legacy_config_phone_path.write_text(json.dumps(phone_config, indent=2))
+
         logger.info(f"Wrote CVD config: {config_path}")
+        logger.info(f"Symlinked legacy CVD config: {legacy_config_path}")
+        logger.info(f"Wrote legacy CVD config phone: {legacy_config_phone_path}")
+        logger.info(f"Legacy config dir listing: {list(config_dir.iterdir())}")
 
         # Determine launch_cvd binary path
         launch_cvd = CVD_BIN_DIR / "launch_cvd"
@@ -419,42 +636,118 @@ class DeviceManager:
             # Fallback: check if it's on PATH
             launch_cvd = Path(shutil.which("launch_cvd") or "launch_cvd")
 
-        # Build launch_cvd command
-        cvd_cmd = (
-            f"{launch_cvd} "
-            f"--config_file={config_path} "
-            f"--base_instance_num={instance_num} "
-            f"--daemon "
-            f"--gpu_mode={req.gpu_mode} "
-            f"--report_anonymous_usage_stats=n "
-        )
+        # Ensure stale CVD instance is reset (covers "instance directory files in use" errors)
+        cvd_reset = CVD_BIN_DIR / "cvd"
+        if not cvd_reset.exists():
+            cvd_reset = Path(shutil.which("cvd") or "cvd")
+        try:
+            _run(f"{cvd_reset} reset --base_instance_num={instance_num}", timeout=30)
+            logger.info(f"Called cvd reset for base_instance_num={instance_num}")
+        except Exception as e:
+            logger.warning(f"cvd reset command failed (non-fatal): {e}")
 
-        # Add image directory if configured
-        if CVD_IMAGES_DIR.exists():
-            system_img = CVD_IMAGES_DIR / "system.img"
-            if system_img.exists():
-                cvd_cmd += f"--system_image_dir={CVD_IMAGES_DIR} "
+        # Pre-resolve image dir once
+        system_image_dir = self._resolve_system_image_dir()
+        if not system_image_dir:
+            logger.warning(f"Using fallback system_image_dir: {CVD_IMAGES_DIR}")
+            system_image_dir = CVD_IMAGES_DIR
 
-        # NUMA-aware CPU pinning: wrap launch_cvd with taskset if on multi-socket
-        numa_cpus = self._select_numa_cpus(req)
-        if numa_cpus:
-            cvd_cmd = f"taskset -c {numa_cpus} {cvd_cmd}"
-            logger.info(f"NUMA pinning active: CPUs {numa_cpus}")
+        # Helper to build launch command with runtime options
+        def _build_cvd_command(gpu_mode: str) -> str:
+            extra_bootconfig = cvd_config["instances"][0]["boot"]["extra_bootconfig_args"]
+            cvd_cmd = (
+                f"{launch_cvd} "
+                f"--config=phone "  # Cuttlefish presets use phone base config
+                f"--base_instance_num={instance_num} "
+                f"--daemon "
+                f"--gpu_mode={gpu_mode} "
+                f"--cpus={req.cpus} "
+                f"--memory_mb={req.memory_mb} "
+                f"--display0=width={req.screen_width},height={req.screen_height},dpi={req.dpi} "
+                f"--extra_bootconfig_args='{extra_bootconfig}' "
+                f"--report_anonymous_usage_stats=n "
+                f"--system_image_dir={system_image_dir} "
+            )
 
+            numa_cpus = self._select_numa_cpus(req)
+            if numa_cpus:
+                cvd_cmd = f"taskset -c {numa_cpus} {cvd_cmd}"
+                logger.info(f"NUMA pinning active: CPUs {numa_cpus}")
+
+            return cvd_cmd
+
+        # Create Cuttlefish device with GPU fallback (drm_virgl -> guest_swiftshader only for auto)
         logger.info(f"Creating Cuttlefish device {dev_id} (instance {instance_num})")
-        result = _run(cvd_cmd, timeout=180, env={"HOME": str(cvd_home)})
+        final_result: Dict[str, Any] = {"ok": False, "stderr": ""}
 
-        if not result["ok"]:
-            dev.state = "error"
-            dev.error = result["stderr"]
+        if initial_gpu_mode == "auto":
+            attempted_modes = [req.gpu_mode]
+            if req.gpu_mode != "guest_swiftshader":
+                attempted_modes.append("guest_swiftshader")
+        else:
+            attempted_modes = [req.gpu_mode]
+
+        for mode in attempted_modes:
+            current_cmd = _build_cvd_command(mode)
+            logger.info(f"launch_cvd command (gpu_mode={mode}): {current_cmd}")
+            result = _run(current_cmd, timeout=300, env={"HOME": str(cvd_home)})
+            if result["ok"]:
+                final_result = result
+                req.gpu_mode = mode
+                dev.config["gpu_mode"] = mode
+                break
+
+            # Detect early retry conditions for GPU mode failures
+            stderr_lower = result.get("stderr", "").lower()
+            if mode != "guest_swiftshader" and (
+                "--gpu_mode=drm_virgl was requested" in stderr_lower
+                or "failed to initialize display" in stderr_lower
+                or "graphics check failure" in stderr_lower
+            ):
+                logger.warning(f"GPU mode {mode} failed, retrying with guest_swiftshader: {stderr_lower}")
+                final_result = result
+                continue
+
+            final_result = result
+            break
+
+        if not final_result["ok"]:
+            if final_result["stderr"] == "timeout":
+                check = _run("pgrep -fa launch_cvd || true", timeout=5)
+                if check["ok"] and "launch_cvd" in check["stdout"]:
+                    logger.info("launch_cvd process is still running after timeout; continuing boot wait")
+                    dev.state = "booting"
+                    dev.error = "launch_cvd timeout, process still running"
+                    self._save_state()
+                else:
+                    dev.state = "error"
+                    dev.error = final_result["stderr"]
+                    self._save_state()
+                    raise RuntimeError(f"launch_cvd failed: {final_result['stderr']}")
+            else:
+                dev.state = "error"
+                dev.error = final_result["stderr"]
+                self._save_state()
+                raise RuntimeError(f"launch_cvd failed: {final_result['stderr']}")
+        else:
+            dev.state = "booting"
             self._save_state()
-            raise RuntimeError(f"launch_cvd failed: {result['stderr']}")
-
-        dev.state = "booting"
-        self._save_state()
 
         # Wait for ADB
-        await self._wait_for_adb(dev)
+        try:
+            await self._wait_for_adb(dev)
+        except RuntimeError as e:
+            # If we timed out on a non-software GPU mode, retry once with guest_swiftshader.
+            if req.gpu_mode != "guest_swiftshader":
+                logger.warning(f"ADB boot timeout for {dev_id}; retrying with guest_swiftshader: {e}")
+                await self.destroy_device(dev_id)
+                req.gpu_mode = "guest_swiftshader"
+                return await self.create_device(req)
+
+            dev.state = "error"
+            dev.error = str(e)
+            self._save_state()
+            raise
 
         dev.state = "ready"
         self._save_state()
@@ -539,7 +832,14 @@ class DeviceManager:
         if data_dir.exists():
             shutil.rmtree(data_dir, ignore_errors=True)
 
-        del self._devices[device_id]
+        deleted = self._db.delete_device(device_id)
+        if not deleted:
+            logger.warning(f"Failed to delete device {device_id} from database")
+
+        # Remove from in-memory registry so destroyed devices are not retained
+        if device_id in self._devices:
+            del self._devices[device_id]
+
         self._save_state()
         return True
 
@@ -566,13 +866,18 @@ class DeviceManager:
 
         cvd_cmd = (
             f"{launch_cvd} "
-            f"--config_file={config_path} "
+            f"--config=phone "
             f"--base_instance_num={dev.instance_num} "
             f"--daemon "
             f"--report_anonymous_usage_stats=n "
         )
-        if CVD_IMAGES_DIR.exists() and (CVD_IMAGES_DIR / "system.img").exists():
+
+        system_image_dir = self._resolve_system_image_dir()
+        if system_image_dir:
+            cvd_cmd += f"--system_image_dir={system_image_dir} "
+        else:
             cvd_cmd += f"--system_image_dir={CVD_IMAGES_DIR} "
+            logger.warning(f"Restart: Fallback system_image_dir: {CVD_IMAGES_DIR}")
 
         _run(cvd_cmd, timeout=180, env={"HOME": cvd_home})
 

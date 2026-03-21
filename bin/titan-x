@@ -75,6 +75,28 @@ version_info() {
     fi
 }
 
+cmd_stop() {
+    echo "Stopping Titan-X services..."
+    systemctl stop titan-nginx 2>/dev/null || true
+    systemctl stop titan-scrcpy 2>/dev/null || true
+    systemctl stop titan-api 2>/dev/null || true
+    echo "Services stopped."
+}
+
+cmd_start() {
+    echo "Starting Titan-X services..."
+    systemctl start titan-api
+    systemctl start titan-scrcpy
+    systemctl start titan-nginx
+    echo "Services started. Console: http://localhost"
+}
+
+cmd_restart() {
+    cmd_stop
+    sleep 1
+    cmd_start
+}
+
 ensure_venv() {
     if [[ ! -f "${PYTHON}" ]]; then
         echo "ERROR: Python venv not found at ${VENV_DIR}"
@@ -84,27 +106,7 @@ ensure_venv() {
 }
 
 # ─── Commands ─────────────────────────────────────────────────────────
-cmd_start() {
-    echo "Starting Titan-X services..."
-    systemctl start titan-api
-    systemctl start titan-scrcpy
-    systemctl start titan-nginx
-    echo "Services started. Console: https://localhost"
-}
-
-cmd_stop() {
-    echo "Stopping Titan-X services..."
-    systemctl stop titan-nginx 2>/dev/null || true
-    systemctl stop titan-scrcpy 2>/dev/null || true
-    systemctl stop titan-api 2>/dev/null || true
-    echo "Services stopped."
-}
-
-cmd_restart() {
-    cmd_stop
-    sleep 1
-    cmd_start
-}
+# cmd_start already defined above; do not redefine here (avoids recursion)
 
 cmd_status() {
     echo "═══ Titan-X Service Status ═══"
@@ -158,19 +160,37 @@ cmd_api() {
 cmd_devices() {
     ensure_venv
     PORT="${TITAN_API_PORT:-8080}"
-    curl -sf "http://127.0.0.1:${PORT}/api/devices" 2>/dev/null \
-        | python3 -m json.tool 2>/dev/null \
-        || echo "API not running. Start with: titan-x start"
+    if [[ -z "${TITAN_API_SECRET:-}" ]]; then
+        echo "ERROR: TITAN_API_SECRET environment variable not set"
+        return 1
+    fi
+    curl -sf "http://127.0.0.1:${PORT}/api/devices" \
+        -H "Authorization: Bearer ${TITAN_API_SECRET}" \
+        2>/dev/null | python3 -m json.tool 2>/dev/null \
+        || echo "API not running or unauthorized. Start with: titan-x start"
 }
 
 cmd_create_device() {
     ensure_venv
     PORT="${TITAN_API_PORT:-8080}"
-    curl -sf -X POST "http://127.0.0.1:${PORT}/api/devices" \
+    if [[ -z "${TITAN_API_SECRET:-}" ]]; then
+        echo "ERROR: TITAN_API_SECRET environment variable not set"
+        return 1
+    fi
+    response=$(curl -sS -w "\n%{http_code}" -X POST "http://127.0.0.1:${PORT}/api/devices" \
         -H "Content-Type: application/json" \
-        -d '{}' 2>/dev/null \
-        | python3 -m json.tool 2>/dev/null \
-        || echo "API not running. Start with: titan-x start"
+        -H "Authorization: Bearer ${TITAN_API_SECRET}" \
+        -d '{}' 2>&1)
+    code=$(echo "$response" | tail -n1)
+    body=$(echo "$response" | sed '$d')
+    if [[ "$code" == "200" || "$code" == "201" ]]; then
+        echo "$body" | python3 -m json.tool 2>/dev/null || echo "$body"
+    else
+        echo "create-device failed: HTTP $code"
+        echo "$body"
+        echo "Check /var/log/syslog or journalctl -u titan-api for root cause."
+        return 1
+    fi
 }
 
 cmd_setup_cuttlefish() {

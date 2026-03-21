@@ -23,7 +23,7 @@ async def get_settings():
     settings_file = _config_dir() / "settings.json"
     if settings_file.exists():
         return json.loads(settings_file.read_text())
-    return {"gpu_url": os.environ.get("TITAN_GPU_URL", ""), "stub": True}
+    raise NotImplementedError("GPU settings: real implementation required.")
 
 
 ALLOWED_SETTINGS_KEYS = {

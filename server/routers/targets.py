@@ -20,7 +20,7 @@ async def target_analyze(request: Request):
         result = engine.full_analysis(domain)
         return result
     except (ImportError, Exception) as e:
-        return {"domain": domain, "stub": True, "available": False, "message": str(e)}
+        raise NotImplementedError(f"Target analysis error: {str(e)}")
 
 
 @router.post("/waf")
@@ -33,7 +33,7 @@ async def target_waf(request: Request):
         result = detector.detect(domain)
         return {"domain": domain, "result": result}
     except (ImportError, Exception) as e:
-        return {"domain": domain, "stub": True, "available": False, "waf_error": str(e)}
+        raise NotImplementedError(f"WAF error: {str(e)}")
 
 
 @router.post("/dns")
@@ -46,7 +46,7 @@ async def target_dns(request: Request):
         result = intel.get_all_records(domain)
         return {"domain": domain, "result": result}
     except (ImportError, Exception) as e:
-        return {"domain": domain, "stub": True, "available": False, "error": str(e)}
+        raise NotImplementedError(f"Target error: {str(e)}")
 
 
 @router.post("/profiler")
@@ -59,4 +59,4 @@ async def target_profiler(request: Request):
         result = profiler.profile(domain)
         return {"domain": domain, "result": result}
     except (ImportError, Exception) as e:
-        return {"domain": domain, "stub": True, "available": False, "error": str(e)}
+        raise NotImplementedError(f"Target error: {str(e)}")

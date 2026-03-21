@@ -217,20 +217,8 @@ class ScreenStreamer:
             except Exception:
                 pass
 
-        # Check for screenrecord pipe support (Android 10+)
-        try:
-            r = subprocess.run(
-                ["adb", "-s", self.target, "shell",
-                 "screenrecord --help 2>&1 | grep -q output-format"],
-                capture_output=True, text=True, timeout=5, shell=False,
-            )
-            # screenrecord --output-format is Android 10+
-            self._mode = "record"
-            logger.info(f"Stream mode: screenrecord pipe")
-            return self._mode
-        except Exception:
-            pass
-
+        # NOTE: screenrecord mode returns raw H.264 frames. console/mobile expects JPEG blobs.
+        # To avoid mismatched format (black/blank screen), prefer fast_cap path.
         self._mode = "fast_cap"
         logger.info(f"Stream mode: fast_cap (optimized screencap)")
         return self._mode
@@ -323,21 +311,11 @@ class ScreenStreamer:
                 else:
                     # Yield control to event loop even when behind
                     await asyncio.sleep(0)
-        elif self._mode == "record":
-            # H.264 pipe — consumer must decode
-            await self._start_screenrecord_pipe()
-            try:
-                while self._running and self._capture_proc:
-                    chunk = await self._capture_proc.stdout.read(65536)
-                    if not chunk:
-                        break
-                    yield chunk
-            except Exception:
-                pass
-            finally:
-                self._stop_capture()
         else:
-            # scrcpy mode — similar to record but via scrcpy protocol
+            # scrcpy or fallback mode, always generate JPEG frames via fast_cap
+            if self._mode != "fast_cap":
+                logger.warning(f"Stream mode '{self._mode}' not JPEG-compatible; falling back to fast_cap")
+            self._mode = "fast_cap"
             while self._running:
                 t0 = time.monotonic()
                 frame = await self._fast_cap_frame()
