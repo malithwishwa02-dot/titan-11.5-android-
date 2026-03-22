@@ -1,5 +1,5 @@
 """
-Titan V11.3 — AI Router
+Titan V12.0 — AI Router
 /api/ai/* — AI task routing, screen agent, faceswap, vision
 """
 

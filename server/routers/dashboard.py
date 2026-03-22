@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Dashboard Router
+Titan V12.0 — Dashboard Router
 /api/dashboard/* — Live ops feed, summary
 """
 

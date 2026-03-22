@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Cerberus Router
+Titan V12.0 — Cerberus Router
 /api/cerberus/* — Card validation, batch, BIN intelligence
 """
 

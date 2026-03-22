@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Targets Router
+Titan V12.0 — Targets Router
 /api/targets/* — Site analysis, WAF detection, DNS, SSL, scoring
 """
 

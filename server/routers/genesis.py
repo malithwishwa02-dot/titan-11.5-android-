@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Genesis Router
+Titan V12.0 — Genesis Profile Router
 /api/genesis/* — Profile forge, smartforge, profiles CRUD, trust score
 Provision/inject/age-device endpoints are in provision.py.
 """

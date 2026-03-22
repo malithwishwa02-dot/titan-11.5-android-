@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Agent Router
+Titan V12.0 — Agent Router
 /api/agent/* — Autonomous AI device control via GPU LLM
 """
 

@@ -1,4 +1,4 @@
-"""Titan V11.3 — Device Aging Workflow Engine (Cuttlefish)
+"""Titan V12.0 — Device Aging Workflow Engine (Cuttlefish)
 ========================================================
 High-level orchestrator that chains multiple operations into a complete
 device aging pipeline driven by user inputs.
@@ -788,15 +788,16 @@ class WorkflowEngine:
 
     async def _stage_ghost_sim(self, job: WorkflowJob, persona: Dict, country: str):
         """Stage: Ghost SIM v2.0 — configure virtual SIM before forge."""
-        from core.ghost_sim import GhostSIM, SIMConfig
+        from ghost_sim import GhostSIM
         dev = self.dm.get_device(job.device_id) if self.dm else None
         target = dev.adb_target if dev else "127.0.0.1:6520"
         carrier = persona.get("carrier", "tmobile_us")
-        location = persona.get("location", "new_york")
-        config = SIMConfig(carrier=carrier, location=location, country=country)
+        location = persona.get("location", "nyc")
+        phone = persona.get("phone", "+12125551234")
         gsim = GhostSIM(adb_target=target)
-        result = gsim.configure(config)
-        job.report["ghost_sim"] = result
+        sim_config = gsim.configure(carrier=carrier, phone=phone, location=location)
+        job.report["ghost_sim"] = {"carrier": carrier, "location": location,
+                                    "imsi": sim_config.imsi, "msisdn": sim_config.msisdn}
         logger.info("Ghost SIM configured", extra={"carrier": carrier, "country": country})
         # Start signal jitter daemon in background
         gsim.start_signal_daemon()
@@ -806,30 +807,30 @@ class WorkflowEngine:
         if not card_data or not card_data.get("number"):
             logger.info("HCE skipped — no card data")
             return
-        from core.hce_bridge import HCEBridge, HCEConfig
+        from hce_bridge import HCEBridge
         dev = self.dm.get_device(job.device_id) if self.dm else None
         target = dev.adb_target if dev else "127.0.0.1:6520"
         wallet_data = job.report.get("wallet", {})
         dpan = wallet_data.get("dpan", "")
-        exp = f"{card_data.get('exp_month', '12')}/{card_data.get('exp_year', '28')}"
-        config = HCEConfig(
-            dpan=dpan or card_data["number"],
-            expiry=exp,
-            cardholder=card_data.get("name", "CARDHOLDER"),
-            network=card_data.get("network", "visa"),
-        )
+        network = card_data.get("network", "visa")
         bridge = HCEBridge(adb_target=target)
-        result = bridge.configure(config)
+        hce_config = bridge.configure(
+            dpan=dpan or card_data["number"],
+            exp_month=int(card_data.get("exp_month", 12)),
+            exp_year=int(card_data.get("exp_year", 2027)),
+            cardholder=card_data.get("cardholder", card_data.get("name", "CARDHOLDER")),
+            network=network,
+        )
         bridge.register_hce_service()
-        job.report["hce"] = result
-        logger.info("HCE bridge provisioned", extra={"network": config.network})
+        job.report["hce"] = {"dpan": hce_config.dpan, "network": network}
+        logger.info("HCE bridge provisioned", extra={"network": network})
 
     async def _stage_play_integrity(self, job: WorkflowJob):
         """Stage: Play Integrity defense — prop hardening + PIF config."""
-        from core.play_integrity_spoofer import PlayIntegritySpoofer
+        from play_integrity_spoofer import PlayIntegritySpoofer
         dev = self.dm.get_device(job.device_id) if self.dm else None
         target = dev.adb_target if dev else "127.0.0.1:6520"
-        preset_name = job.report.get("preset", "samsung_s25_ultra")
+        preset_name = dev.config.get("model", "samsung_s25_ultra") if dev else "samsung_s25_ultra"
         spoofer = PlayIntegritySpoofer(adb_target=target)
         result = spoofer.apply_integrity_defense(tier="strong", preset=preset_name)
         job.report["play_integrity"] = result
@@ -837,10 +838,10 @@ class WorkflowEngine:
 
     async def _stage_sensor_warmup(self, job: WorkflowJob):
         """Stage: Sensor daemon — start continuous sensor injection."""
-        from core.sensor_simulator import SensorSimulator
+        from sensor_simulator import SensorSimulator
         dev = self.dm.get_device(job.device_id) if self.dm else None
         target = dev.adb_target if dev else "127.0.0.1:6520"
-        preset_name = job.report.get("preset", "samsung_s25_ultra")
+        preset_name = dev.config.get("model", "samsung_s25_ultra") if dev else "samsung_s25_ultra"
         brand = "samsung" if "samsung" in preset_name else "google"
         sim = SensorSimulator(adb_target=target, device_profile=brand)
         sim.start_continuous_injection(interval_s=2)
@@ -849,7 +850,7 @@ class WorkflowEngine:
 
     async def _stage_immune_watchdog(self, job: WorkflowJob):
         """Stage: Immune Watchdog — deploy honeypots + monitoring."""
-        from core.immune_watchdog import ImmuneWatchdog
+        from immune_watchdog import ImmuneWatchdog
         dev = self.dm.get_device(job.device_id) if self.dm else None
         target = dev.adb_target if dev else "127.0.0.1:6520"
         wd = ImmuneWatchdog(adb_target=target)

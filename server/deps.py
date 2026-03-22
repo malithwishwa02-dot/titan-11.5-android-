@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Shared FastAPI Dependencies
+Titan V12.0 — Shared FastAPI Dependencies
 Provides DeviceManager and other singletons via Depends().
 """
 

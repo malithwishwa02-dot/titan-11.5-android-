@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Intelligence Router
+Titan V12.0 — Intelligence Router
 /api/intel/* — AI copilot, recon, OSINT, 3DS strategy, dark web
 """
 

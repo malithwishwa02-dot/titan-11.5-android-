@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Profile-to-Device Injector
+Titan V12.0 — Profile-to-Device Injector
 Injects forged Genesis profiles directly into Cuttlefish Android VMs via ADB.
 
 Injection targets:

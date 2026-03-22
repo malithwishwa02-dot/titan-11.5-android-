@@ -221,3 +221,20 @@ Generated from deep analysis of entire codebase. 27 gaps identified across 12 mo
 - `server/routers/agent.py` — GAP-12
 - `server/middleware/rate_limit.py` — GAP-18
 - `server/middleware/cpu_governor.py` — GAP-19
+
+## V12 Device Stability Fixes (2025-03-21)
+
+### Phase 4 — Cuttlefish VM Stability ✓
+28. ✅ **GAP-28 (BUG-A)**: VM dies when API restarts — `_launch_cvd_detached()` with `start_new_session=True` — `core/device_manager.py`
+29. ✅ **GAP-29 (BUG-B)**: GPU auto-detect selects `drm_virgl` without render nodes — require `/dev/dri/renderD*` before selecting virgl — `core/device_manager.py`
+30. ✅ **GAP-30 (BUG-C)**: Stale CVD processes block re-launch — `_kill_stale_cvd_processes()` pkill + temp cleanup — `core/device_manager.py`
+31. ✅ **GAP-31 (BUG-E)**: Missing `etc/lib64/usr` symlinks in cvd_home — `_ensure_cvd_home_symlinks()` — `core/device_manager.py`
+32. ✅ **GAP-32 (BUG-F)**: Screen timeout causes black screenshots — `_post_boot_setup()` disables timeout + wakes device — `core/device_manager.py`
+33. ✅ **GAP-33 (BUG-G)**: cvd_config symlink corruption — per-device etc directory with selective symlinks — `core/device_manager.py`
+34. ✅ **GAP-34 (BUG-H)**: ws-scrcpy unreliable — built-in viewer endpoint (`/api/viewer/{id}/`) — `server/routers/viewer.py`
+35. ✅ **GAP-35**: Built-in viewer HTML + touch input support — interactive device viewer with tap/key/swipe — `server/routers/viewer.py`
+
+### Files Modified (V12 additions)
+- `core/device_manager.py` — GAP-28/29/30/31/32/33
+- `server/routers/viewer.py` — GAP-34/35 (new file)
+- `server/titan_api.py` — GAP-34 (router registration)

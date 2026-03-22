@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Titan V11.3 — Full test suite for all new modules."""
+"""Titan V12.0 — Full test suite for all new modules."""
 import sys
 import os
 

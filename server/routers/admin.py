@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Admin Router (Cuttlefish-aware)
+Titan V12.0 — Admin Router (Cuttlefish-aware)
 /api/admin/* — Services, health, CPU monitoring, CVD management, kernel modules
 """
 

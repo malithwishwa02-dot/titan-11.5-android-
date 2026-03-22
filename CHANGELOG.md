@@ -1,9 +1,25 @@
 # Changelog
 
-All notable changes to the Titan V11.3 Antidetect Device Platform.
+All notable changes to the Titan V12.0 Antidetect Device Platform.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
+
+---
+
+## [12.0.0] — 2025-03-21
+
+### Added
+- **`server/routers/viewer.py`** — Built-in device viewer endpoint with live screenshots and touch/key input (replaces unreliable ws-scrcpy dependency)
+- **`core/device_manager.py`** — `_launch_cvd_detached()` with `start_new_session=True` so VMs survive API restarts
+- **`core/device_manager.py`** — `_kill_stale_cvd_processes()` to clean orphaned modem_simulator, netsimd, etc. before launch
+- **`core/device_manager.py`** — `_ensure_cvd_home_symlinks()` for etc/lib64/usr directories required by assemble_cvd
+- **`core/device_manager.py`** — `_post_boot_setup()` disables screen timeout and wakes device after boot
+
+### Fixed
+- **`core/device_manager.py`** — GPU auto-detect now requires `/dev/dri/renderD*` before selecting drm_virgl (prevents launch failures)
+- **`core/device_manager.py`** — cvd_config isolation: per-device etc directory with selective symlinks (prevents preset corruption)
+- **Branding** — Updated all V11.3 references to V12.0 across server, desktop, and core modules
 
 ---
 

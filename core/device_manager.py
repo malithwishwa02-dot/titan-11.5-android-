@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Device Manager (Cuttlefish KVM Backend)
+Titan V12.0 — Device Manager (Cuttlefish KVM Backend)
 Creates, destroys, patches, and manages Cuttlefish Android virtual machines.
 Each device gets: unique ADB port, KVM instance, identity preset, anomaly patching.
 
@@ -16,11 +16,13 @@ Usage:
 """
 
 import asyncio
+import glob
 import json
 import logging
 import os
 import secrets
 import shutil
+import signal
 import subprocess
 import time
 from dataclasses import asdict, dataclass, field
@@ -360,17 +362,15 @@ class DeviceManager:
                 logger.info("GPU auto-detect: gfxstream (Vulkan GPU found)")
                 return "gfxstream"
 
-        # Check for virgl renderer (Mesa 3D)
-        virgl = _run("virgl_test_server --help 2>&1 || ldconfig -p 2>/dev/null | grep virgl", timeout=3)
-        if virgl["ok"] or "virgl" in virgl.get("stderr", ""):
-            logger.info("GPU auto-detect: drm_virgl (virglrenderer found)")
-            return "drm_virgl"
-
-        # Check for any GPU render nodes
-        r = _run("ls /dev/dri/renderD* 2>/dev/null", timeout=3)
-        if r["ok"] and "/dev/dri/" in r["stdout"]:
-            logger.info("GPU auto-detect: drm_virgl (DRI render node found)")
-            return "drm_virgl"
+        # Check for virgl renderer (Mesa 3D) — REQUIRES a render node to actually work
+        has_render_node = bool(glob.glob("/dev/dri/renderD*"))
+        if has_render_node:
+            virgl = _run("virgl_test_server --help 2>&1 || ldconfig -p 2>/dev/null | grep virgl", timeout=3)
+            if virgl["ok"] or "virgl" in virgl.get("stderr", ""):
+                logger.info("GPU auto-detect: drm_virgl (virglrenderer + render node found)")
+                return "drm_virgl"
+        else:
+            logger.info("GPU auto-detect: no /dev/dri/renderD* nodes — skipping drm_virgl")
 
         logger.info("GPU auto-detect: guest_swiftshader (no GPU acceleration found)")
         return "guest_swiftshader"
@@ -406,6 +406,145 @@ class DeviceManager:
         for dev in self._devices.values():
             dev_dict = dev.to_dict()
             self._db.save_device(dev_dict)
+
+    # ─── CVD PROCESS MANAGEMENT ──────────────────────────────────────
+
+    CVD_CHILD_PROCESSES = [
+        "crosvm", "run_cvd", "launch_cvd", "modem_simulator", "netsimd",
+        "operator_proxy", "tombstone_receiver", "cf_vhost_user_input",
+        "wmediumd", "screen_recording_server", "control_env_proxy_server",
+        "echo_server", "gnss_grpc_proxy", "secure_env", "socket_vsock_pr",
+        "casimir", "rootcanal", "adb_connector", "webRTC",
+    ]
+
+    def _kill_stale_cvd_processes(self, instance_num: int = None):
+        """Kill orphaned Cuttlefish child processes that hold ports and block re-launch.
+
+        BUG-C fix: After stop_cvd or cvd reset, child processes like modem_simulator,
+        netsimd, tombstone_receiver etc. can survive and hold sockets (port 9600, 7300, etc.)
+        causing 'Address already in use' on next launch.
+        """
+        killed = []
+        for proc_name in self.CVD_CHILD_PROCESSES:
+            r = _run(f"pkill -9 -f '{proc_name}' 2>/dev/null", timeout=5)
+            if r["ok"]:
+                killed.append(proc_name)
+
+        if killed:
+            logger.info(f"Killed stale CVD processes: {killed}")
+
+        # Clean temp directories that Cuttlefish leaves behind
+        for pattern in ["/tmp/cf_avd_*", "/tmp/cf_env_*", "/tmp/modem_simulator*"]:
+            for p in glob.glob(pattern):
+                try:
+                    if os.path.isdir(p):
+                        shutil.rmtree(p, ignore_errors=True)
+                    else:
+                        os.remove(p)
+                except Exception:
+                    pass
+
+        # Wait for sockets to release
+        time.sleep(2)
+
+    def _launch_cvd_detached(self, cmd: str, cvd_home: str) -> Dict[str, Any]:
+        """Launch CVD in a fully detached process group so it survives API restarts.
+
+        BUG-A fix: Using subprocess.Popen with start_new_session=True instead of
+        _run() so the VM process tree is completely independent of the uvicorn worker.
+        """
+        env = os.environ.copy()
+        env["HOME"] = cvd_home
+
+        log_path = os.path.join(cvd_home, "launch_cvd.log")
+        try:
+            with open(log_path, "w") as log_file:
+                proc = subprocess.Popen(
+                    cmd,
+                    shell=True,
+                    stdout=log_file,
+                    stderr=subprocess.STDOUT,
+                    env=env,
+                    start_new_session=True,  # setsid equivalent — new process group
+                    close_fds=True,
+                )
+
+            # Wait up to 300s for launch_cvd to finish (it exits after VM starts in --daemon mode)
+            try:
+                returncode = proc.wait(timeout=300)
+            except subprocess.TimeoutExpired:
+                # launch_cvd still running — check if VM is coming up
+                returncode = None
+
+            # Read the log for diagnostics
+            try:
+                with open(log_path, "r") as f:
+                    output = f.read()
+            except Exception:
+                output = ""
+
+            if returncode is not None and returncode != 0:
+                return {"ok": False, "stdout": output, "stderr": output}
+            elif returncode is None:
+                # Process still running — could be booting
+                return {"ok": True, "stdout": output, "stderr": "", "pid": proc.pid}
+            else:
+                return {"ok": True, "stdout": output, "stderr": ""}
+
+        except Exception as e:
+            return {"ok": False, "stdout": "", "stderr": str(e)}
+
+    def _ensure_cvd_home_symlinks(self, cvd_home: Path):
+        """Symlink all required directories from CVD host package into per-instance home.
+
+        BUG-E fix: launch_cvd (specifically assemble_cvd and avbtool) expects
+        $HOME/bin, $HOME/etc, $HOME/lib64, $HOME/usr to contain host-package files.
+        Only bin/ was symlinked — etc/, lib64/, usr/ were missing.
+        """
+        cf_root = CVD_BIN_DIR.parent  # e.g. /opt/titan/cuttlefish/cf
+        for dirname in ["bin", "lib64", "usr"]:
+            target = cvd_home / dirname
+            source = cf_root / dirname
+            if not target.exists() and source.exists():
+                try:
+                    target.symlink_to(source)
+                    logger.info(f"Symlinked {source} -> {target}")
+                except Exception as e:
+                    logger.warning(f"Failed to symlink {dirname} for {cvd_home}: {e}")
+
+        # etc/ needs special handling — we create a REAL directory and selectively
+        # copy/symlink contents to avoid corrupting shared cvd_config presets
+        etc_target = cvd_home / "etc"
+        etc_source = cf_root / "etc"
+        if not etc_target.exists() and etc_source.exists():
+            etc_target.mkdir(parents=True, exist_ok=True)
+            # Symlink individual entries except cvd_config (handled separately per-device)
+            for entry in etc_source.iterdir():
+                dest = etc_target / entry.name
+                if entry.name == "cvd_config":
+                    continue  # Per-device config created in create_device
+                if not dest.exists():
+                    try:
+                        dest.symlink_to(entry)
+                    except Exception as e:
+                        logger.warning(f"Failed to symlink etc/{entry.name}: {e}")
+
+    def _post_boot_setup(self, dev: DeviceInstance):
+        """Post-boot device configuration.
+
+        BUG-F fix: Disable screen timeout so device doesn't go to sleep,
+        which causes black screenshots and viewer failures.
+        """
+        t = dev.adb_target
+        # Disable screen timeout
+        _adb(t, "shell settings put system screen_off_timeout 2147483647", timeout=5)
+        # Keep screen on while charging (always true for VMs)
+        _adb(t, "shell svc power stayon true", timeout=5)
+        # Wake device and dismiss keyguard
+        _adb(t, "shell input keyevent KEYCODE_WAKEUP", timeout=5)
+        time.sleep(0.5)
+        _adb(t, "shell input keyevent 82", timeout=5)
+        logger.info(f"Post-boot setup complete for {dev.id}: screen timeout disabled, device awake")
 
     # ─── DEVICE CRUD ──────────────────────────────────────────────────
 
@@ -485,39 +624,20 @@ class DeviceManager:
 
     def _generate_cvd_config(self, req: CreateDeviceRequest,
                               preset=None) -> Dict[str, Any]:
-        """Generate Cuttlefish JSON config for launch_cvd."""
-        # Build extra_bootconfig_args with device identity props
+        """Generate Cuttlefish JSON config for launch_cvd.
+
+        IMPORTANT: Only androidboot.* and sys.* keys are valid bootconfig
+        entries.  ro.* system properties MUST NOT go here — they are applied
+        post-boot by the anomaly patcher via resetprop.
+        """
+        # Only valid bootconfig keys (androidboot.* / sys.*)
         boot_props = [
             "androidboot.verifiedbootstate=green",
             "androidboot.vbmeta.device_state=locked",
             "sys.use_memfd=true",
         ]
         if preset:
-            boot_props.extend([
-                f"androidboot.hardware={preset.hardware}",
-                f"ro.product.brand={preset.brand}",
-                f"ro.product.manufacturer={preset.manufacturer}",
-                f"ro.product.model={preset.model}",
-                f"ro.product.device={preset.device}",
-                f"ro.product.name={preset.product}",
-                f"ro.build.fingerprint={preset.fingerprint}",
-                f"ro.build.display.id={preset.build_id}",
-                f"ro.build.version.release={preset.android_version}",
-                f"ro.build.version.sdk={preset.sdk_version}",
-                f"ro.build.version.security_patch={preset.security_patch}",
-                f"ro.build.type={preset.build_type}",
-                f"ro.build.tags={preset.build_tags}",
-                f"ro.board.platform={preset.board}",
-                f"ro.bootloader={preset.bootloader}",
-                f"ro.baseband={preset.baseband}",
-                f"ro.sf.lcd_density={preset.lcd_density}",
-                f"ro.boot.flash.locked=1",
-                f"ro.build.selinux=1",
-                f"ro.allow.mock.location=0",
-                f"ro.kernel.qemu=0",
-                f"ro.hardware.virtual=0",
-                f"ro.boot.qemu=0",
-            ])
+            boot_props.append(f"androidboot.hardware={preset.hardware}")
 
         config = {
             "instances": [{
@@ -533,7 +653,7 @@ class DeviceManager:
                     }]
                 },
                 "boot": {
-                    "extra_bootconfig_args": " ".join(boot_props),
+                    "extra_bootconfig_args": "\n".join(boot_props),
                 },
             }]
         }
@@ -557,18 +677,15 @@ class DeviceManager:
         vnc_port = self._instance_vnc_port(instance_num)
         instance_name = f"{INSTANCE_PREFIX}{dev_id}"
 
+        # BUG-C: Kill any stale CVD processes before attempting launch
+        self._kill_stale_cvd_processes(instance_num)
+
         # Create per-instance home directory for Cuttlefish
         cvd_home = CVD_HOME_BASE / dev_id
         cvd_home.mkdir(parents=True, exist_ok=True)
 
-        # Ensure necessary per-instance host binaries are accessible
-        bin_dir = cvd_home / "bin"
-        if not bin_dir.exists():
-            try:
-                bin_dir.symlink_to(CVD_BIN_DIR)
-                logger.info(f"Symlinked CVD host binaries to {bin_dir}")
-            except Exception as e:
-                logger.warning(f"Failed to symlink CVD bin directory: {e}")
+        # BUG-E: Symlink ALL required host dirs (bin, lib64, usr, etc) into per-instance home
+        self._ensure_cvd_home_symlinks(cvd_home)
 
         # Also create device data dir for Titan metadata
         data_dir = DEVICES_DIR / dev_id
@@ -664,7 +781,7 @@ class DeviceManager:
                 f"--cpus={req.cpus} "
                 f"--memory_mb={req.memory_mb} "
                 f"--display0=width={req.screen_width},height={req.screen_height},dpi={req.dpi} "
-                f"--extra_bootconfig_args='{extra_bootconfig}' "
+                f'--extra_bootconfig_args="{extra_bootconfig}" '
                 f"--report_anonymous_usage_stats=n "
                 f"--system_image_dir={system_image_dir} "
             )
@@ -690,7 +807,8 @@ class DeviceManager:
         for mode in attempted_modes:
             current_cmd = _build_cvd_command(mode)
             logger.info(f"launch_cvd command (gpu_mode={mode}): {current_cmd}")
-            result = _run(current_cmd, timeout=300, env={"HOME": str(cvd_home)})
+            # BUG-A: Use detached launch so VM survives API restarts
+            result = self._launch_cvd_detached(current_cmd, str(cvd_home))
             if result["ok"]:
                 final_result = result
                 req.gpu_mode = mode
@@ -748,6 +866,9 @@ class DeviceManager:
             dev.error = str(e)
             self._save_state()
             raise
+
+        # BUG-F: Post-boot setup — disable screen timeout, wake device
+        self._post_boot_setup(dev)
 
         dev.state = "ready"
         self._save_state()
@@ -879,12 +1000,20 @@ class DeviceManager:
             cvd_cmd += f"--system_image_dir={CVD_IMAGES_DIR} "
             logger.warning(f"Restart: Fallback system_image_dir: {CVD_IMAGES_DIR}")
 
-        _run(cvd_cmd, timeout=180, env={"HOME": cvd_home})
+        # BUG-C: Kill stale processes before restart
+        self._kill_stale_cvd_processes(dev.instance_num)
+
+        # BUG-A: Use detached launch so VM survives API restarts
+        self._launch_cvd_detached(cvd_cmd, cvd_home)
 
         dev.state = "booting"
         self._save_state()
 
         await self._wait_for_adb(dev)
+
+        # BUG-F: Post-boot setup — disable screen timeout, wake device
+        self._post_boot_setup(dev)
+
         dev.state = "ready"
         self._save_state()
         return True

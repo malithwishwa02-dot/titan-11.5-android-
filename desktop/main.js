@@ -290,7 +290,7 @@ async function createMainWindow() {
     height: 900,
     minWidth: 900,
     minHeight: 600,
-    title: 'Titan V11.3 — Cuttlefish Android Console',
+    title: 'Titan V12.0 — Cuttlefish Android Console',
     backgroundColor: '#0a0e17',
     icon: path.join(__dirname, 'assets', 'icon.png'),
     webPreferences: {
@@ -333,7 +333,7 @@ async function createMainWindow() {
     </head>
     <body>
       <div class="logo">T</div>
-      <h1>Titan V11.3</h1>
+      <h1>Titan V12.0</h1>
       <p>Starting Cuttlefish backend server…</p>
       <div class="spinner"></div>
     </body>
@@ -420,7 +420,7 @@ function createTray() {
   const iconPath = path.join(__dirname, 'assets', 'tray.png');
   if (!fs.existsSync(iconPath)) return;
   tray = new Tray(iconPath);
-  tray.setToolTip('Titan V11.3 Cuttlefish Console');
+  tray.setToolTip('Titan V12.0 Cuttlefish Console');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Console', click: () => { if (mainWindow) mainWindow.show(); else createMainWindow(); } },
     { type: 'separator' },

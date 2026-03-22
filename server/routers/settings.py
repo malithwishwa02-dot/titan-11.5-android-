@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Settings Router
+Titan V12.0 — Settings Router
 /api/settings/* — Configuration persistence
 """
 

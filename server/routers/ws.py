@@ -1,5 +1,5 @@
 """
-Titan V11.3 — WebSocket Router (High-Performance)
+Titan V12.0 — WebSocket Router (High-Performance)
 /ws/* — Screen streaming, touch input, log streaming
 
 Screen streaming uses ScreenStreamer for 8-15+ FPS (vs old 2 FPS).

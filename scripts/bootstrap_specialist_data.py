@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Titan V11.3 — Specialist Model Training Data Generator
+Titan V12.0 — Specialist Model Training Data Generator
 Generates structured training data for titan-specialist:7b covering
 anomaly patching, wallet provisioning, and profile forensic analysis.
 

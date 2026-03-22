@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Unified API Server (Restructured)
+Titan V12.0 — Unified API Server (Restructured)
 FastAPI backend serving all 12 app sections (62 tabs) + device management.
 Split into router modules for maintainability and performance.
 """
@@ -87,7 +87,7 @@ set_device_manager(dm)
 # ─── Register Routers ─────────────────────────────────────────────────
 from routers import devices, stealth, genesis, provision, agent, intel, network
 from routers import cerberus, targets, kyc, admin, dashboard, settings
-from routers import bundles, ai, ws, training
+from routers import bundles, ai, ws, training, viewer
 
 # Initialize routers that need the device manager (legacy pattern, kept for compat)
 for mod in [devices, stealth, genesis, provision, agent, kyc, admin, dashboard, bundles, ws, ai, training]:
@@ -95,7 +95,7 @@ for mod in [devices, stealth, genesis, provision, agent, kyc, admin, dashboard, 
 
 # Include all routers
 for r in [devices, stealth, genesis, provision, agent, intel, network, cerberus,
-          targets, kyc, admin, dashboard, settings, bundles, ai, ws, training]:
+          targets, kyc, admin, dashboard, settings, bundles, ai, ws, training, viewer]:
     app.include_router(r.router)
 
 
@@ -281,7 +281,7 @@ async def api_metrics_endpoint():
 @app.get("/", response_class=HTMLResponse)
 async def console_root():
     index = CONSOLE_DIR / "index.html"
-    content = index.read_text() if index.exists() else "<h1>Titan V11.3 — Console not found. Deploy console/index.html</h1>"
+    content = index.read_text() if index.exists() else "<h1>Titan V12.0 — Console not found. Deploy console/index.html</h1>"
     resp = HTMLResponse(content)
     # Inject API auth token as cookie so console JS can read it
     secret = os.environ.get("TITAN_API_SECRET", "").strip()
@@ -320,7 +320,7 @@ async def favicon():
 @app.on_event("startup")
 async def startup():
     global recovery_manager, health_monitor
-    logger.info("Titan V11.3 API Server starting")
+    logger.info("Titan V12.0 API Server starting")
     logger.info(f"Devices loaded: {len(dm.list_devices())}")
     logger.info(f"Console dir: {CONSOLE_DIR}")
     logger.info(f"Core dir: {CORE_DIR}")
@@ -364,7 +364,7 @@ async def startup():
 async def shutdown():
     """Graceful shutdown - drain in-flight requests and cleanup."""
     global recovery_manager, health_monitor
-    logger.info("Titan V11.3 API Server shutting down gracefully")
+    logger.info("Titan V12.0 API Server shutting down gracefully")
     
     # Stop health monitor
     if health_monitor:

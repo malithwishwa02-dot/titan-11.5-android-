@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Devices Router (Cuttlefish)
+Titan V12.0 — Devices Router (Cuttlefish)
 /api/devices/* — Device CRUD, streaming, screenshots, input
 """
 

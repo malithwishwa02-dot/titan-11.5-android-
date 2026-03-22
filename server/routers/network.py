@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Network Router
+Titan V12.0 — Network Router
 /api/network/* — VPN, proxy, shield, forensic
 """
 

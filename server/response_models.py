@@ -1,5 +1,5 @@
 """
-Titan V11.3 -- FastAPI Response Models
+Titan V12.0 -- FastAPI Response Models
 Pydantic models for documented API responses. Used with FastAPI's
 response_model parameter for auto-generated OpenAPI docs.
 """

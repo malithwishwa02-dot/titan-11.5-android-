@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Training Data Router
+Titan V12.0 — Training Data Router
 /api/training/* — Demo recording, trajectory management, training data export
 """
 

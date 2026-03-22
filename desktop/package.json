@@ -58,9 +58,10 @@
       "icon": "assets/icon.png",
       "desktop": {
         "Name": "Titan Console",
-        "Comment": "Titan V11.3 Cuttlefish Android Console",
+        "Comment": "Titan V12.0 Cuttlefish Android Console",
         "Keywords": "titan;android;cuttlefish;antidetect;console;",
-        "StartupWMClass": "titan-console"
+        "StartupWMClass": "titan-console",
+    "Version": "12.0.0"
       }
     },
     "deb": {

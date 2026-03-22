@@ -1,5 +1,5 @@
 """
-Titan V11.3 — KYC Router
+Titan V12.0 — KYC Router
 /api/kyc/* — Camera inject, deepfake, liveness, voice, KYC flow
 """
 

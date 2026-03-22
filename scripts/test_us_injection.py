@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Titan V11.3 — Full US Bundle Injection Test
+Titan V12.0 — Full US Bundle Injection Test
 Tests the complete injection pipeline:
   1. AndroidProfileForge → generate US profile
   2. ProfileInjector → inject all data into Cuttlefish Android VM

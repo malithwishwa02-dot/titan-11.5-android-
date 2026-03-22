@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Provision Router
+Titan V12.0 — Full Provisioning Router
 /api/genesis/* — Inject, full-provision, age-device, job status
 Split from genesis.py to reduce file size and separate concerns.
 """

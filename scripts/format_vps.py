@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Titan V11.3 — Hostinger VPS Format Script
+Titan V12.0 — Hostinger VPS Format Script
 Recreates the target VPS (72.62.72.48) via Hostinger API with fresh Ubuntu 24.04.
 Attaches SSH key and waits for VPS to be ready.
 
@@ -114,13 +114,13 @@ def wait_for_ready(timeout: int = 600):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Format Hostinger VPS for Titan V11.3")
+    parser = argparse.ArgumentParser(description="Format Hostinger VPS for Titan V12.0")
     parser.add_argument("--confirm", action="store_true", help="Actually format (without this, dry run only)")
     parser.add_argument("--skip-format", action="store_true", help="Skip recreate, just check status")
     args = parser.parse_args()
 
     print("═══════════════════════════════════════════════════════════")
-    print("  TITAN V11.3 — VPS Format Script")
+    print("  TITAN V12.0 — VPS Format Script")
     print(f"  Target: VPS {VPS_ID} (KVM 8)")
     print("═══════════════════════════════════════════════════════════\n")
 

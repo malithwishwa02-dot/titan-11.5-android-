@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Bundles Router
+Titan V12.0 — Bundles Router
 /api/bundles/* — App bundle installation
 """
 

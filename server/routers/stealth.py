@@ -1,5 +1,5 @@
 """
-Titan V11.3 — Stealth Router
+Titan V12.0 — Stealth / Anomaly Patching Router
 /api/stealth/* — Presets, carriers, locations, patch, audit, repatch
 """
 

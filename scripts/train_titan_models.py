@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Titan V11.3 — AI Model Training Script
+Titan V12.0 — AI Model Training Script
 ========================================
 Fine-tunes vision and action models using LoRA on collected trajectories.
 
@@ -498,12 +498,12 @@ def train_specialist_model(data_dir: str, output_dir: str,
                            max_seq_len: int = 2048):
     """Fine-tune specialist model with LoRA on domain knowledge."""
     logger.info(f"=== SPECIALIST MODEL TRAINING ===")
-    logger.info(f"Base: {base_model} | LoRA r={rank} \u03b1={alpha}")
-    logger.info(f"Epochs: {epochs} | LR: {lr} | Batch: {batch_size}\u00d7{grad_accum}")
+    logger.info(f"Base: {base_model} | LoRA r={rank} α={alpha}")
+    logger.info(f"Epochs: {epochs} | LR: {lr} | Batch: {batch_size}×{grad_accum}")
 
     dataset = load_specialist_dataset(data_dir)
     if len(dataset) < 10:
-        logger.error(f"Only {len(dataset)} examples \u2014 need at least 10.")
+        logger.error(f"Only {len(dataset)} examples — need at least 10.")
         return False
 
     split = int(len(dataset) * 0.9)
@@ -676,7 +676,7 @@ def export_to_gguf(model_dir: str, output_path: str,
 SYSTEM "You are Titan AI agent controlling an Android device. Analyze the screen state and output the next action as a JSON object."
 PARAMETER temperature 0.2
 PARAMETER num_predict 512
-PARAMETER stop "<|im_end|>"
+PARAMETER stop \"\"
 """
         modelfile_path = Path(output_path) / "Modelfile"
         modelfile_path.write_text(modelfile_content)
@@ -697,7 +697,7 @@ def show_stats(data_dir: str):
     stats = exporter.stats()
 
     print("\n" + "=" * 60)
-    print("TITAN TRAINING DATA STATISTICS")
+    print("  TITAN V12.0 — TRAINING DATA STATISTICS")
     print("=" * 60)
     print(f"  Trajectory directory: {data_dir}")
     print(f"  Total trajectories:   {stats['total_trajectories']}")

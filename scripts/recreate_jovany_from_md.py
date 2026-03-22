@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Titan V11.3 — Self-Recreate: Jovany Owens Device from MD Profile
+Titan V12.0 — Self-Recreate: Jovany Owens Device from MD Profile
 =================================================================
 Reads the forge spec from JOVANY-OWENS-FORGE-DETAILS.md and:
   1. Reports current active services / device status
@@ -540,7 +540,7 @@ def step5_enrich_profile(new_profile_id: str):
 def main():
     print()
     print("╔══════════════════════════════════════════════════════════════════╗")
-    print("║  Titan V11.3 — Jovany Owens Self-Recreate from MD Profile       ║")
+    print("║  Titan V12.0 — Jovany Owens Self-Recreate from MD Profile       ║")
     print(f"║  Run at: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC" + " "*28 + "║")
     print("╚══════════════════════════════════════════════════════════════════╝")
 
